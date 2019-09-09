@@ -1,0 +1,13 @@
+[package]
+name = "greetd"
+version = "0.1.0"
+authors = ["Kenny Levinsen <kl@kl.wtf>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+nix = "0.15"
+pam = { git = "https://github.com/regiontog/pam.git" }
+users = "0.9.1"
+byteorder = "1.3"
