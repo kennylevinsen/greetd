@@ -65,7 +65,13 @@ impl<'a> Context<'a> {
                 setuid(uid).expect("unable to set UID");
 
                 // Change working directory
-                env::set_current_dir(&u.home_dir()).expect("unable to set current directory");
+                let pwd = match env::set_current_dir(&u.home_dir()) {
+                    Ok(_) => u.home_dir().to_str().unwrap().to_string(),
+                    Err(_) => {
+                        env::set_current_dir("/").expect("unable to set current dir");
+                        "/".to_string()
+                    }
+                };;
 
                 // Set environment
 
@@ -75,7 +81,7 @@ impl<'a> Context<'a> {
                 env::set_var("XDG_SEAT", "seat0");
                 env::set_var("LOGNAME", &u.name());
                 env::set_var("HOME", &u.home_dir());
-                env::set_var("PWD", &u.home_dir());
+                env::set_var("PWD", &pwd);
                 env::set_var("SHELL", &u.shell());
                 if env::var("TERM").is_err() {
                     env::set_var("TERM", "linux");
@@ -170,7 +176,13 @@ impl<'a> Context<'a> {
                 setuid(uid).expect("unable to set UID");
 
                 // Change working directory
-                env::set_current_dir(&u.home_dir()).expect("unable to set current directory");
+                let pwd = match env::set_current_dir(&u.home_dir()) {
+                    Ok(_) => u.home_dir().to_str().unwrap().to_string(),
+                    Err(_) => {
+                        env::set_current_dir("/").expect("unable to set current dir");
+                        "/".to_string()
+                    }
+                };;
 
                 // Set environment
                 for e in myenv {
@@ -179,7 +191,7 @@ impl<'a> Context<'a> {
                 }
                 env::set_var("LOGNAME", &u.name());
                 env::set_var("HOME", &u.home_dir());
-                env::set_var("PWD", &u.home_dir());
+                env::set_var("PWD", &pwd);
                 env::set_var("SHELL", &u.shell());
                 if env::var("TERM").is_err() {
                     env::set_var("TERM", "linux");
