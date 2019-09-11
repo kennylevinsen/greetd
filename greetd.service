@@ -1,0 +1,16 @@
+[Unit]
+Description=Greeter daemon
+After=systemd-user-sessions.service plymouth-quit-wait.service
+After=getty@tty2.service
+
+[Service]
+Type=idle
+ExecStart=/usr/local/bin/greetd --vt=2 --greeter=dlm2 --greeteruser=greetd
+StandardInput=tty
+TTYPath=/dev/tty2
+TTYReset=yes
+TTYVHangup=yes
+Restart=always
+
+[Install]
+Alias=display-manager.service
