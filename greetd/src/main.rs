@@ -1,11 +1,14 @@
 use std::cell::RefCell;
 use std::env;
+use std::fs::remove_file;
 use std::os::unix::io::AsRawFd;
 use std::rc::Rc;
 
 use nix::ioctl_write_int_bad;
 use nix::poll::{poll, PollFd};
 use nix::unistd::chown;
+
+use clap::{crate_authors, crate_version, App, Arg};
 
 mod client;
 mod context;
@@ -25,17 +28,45 @@ ioctl_write_int_bad!(vt_waitactive, 0x5607);
 const GREETD_SOCK: &'static str = "/run/greetd.sock";
 
 fn main() {
-    let tty = env::var("GREETD_TTY")
-        .expect("unable to get tty")
+    let matches = App::new("greetd")
+        .version(crate_version!())
+        .author(crate_authors!())
+        .arg(
+            Arg::with_name("vt")
+                .short("t")
+                .long("vt")
+                .takes_value(true)
+                .help("VT to run on"),
+        )
+        .arg(
+            Arg::with_name("greeter")
+                .short("g")
+                .long("greeter")
+                .required(true)
+                .takes_value(true)
+                .help("greeter to run"),
+        )
+        .arg(
+            Arg::with_name("greeteruser")
+                .short("u")
+                .long("greeteruser")
+                .required(true)
+                .takes_value(true)
+                .help("user to run greeter as"),
+        )
+        .get_matches();
+
+    let tty = matches
+        .value_of("vt")
+        .unwrap_or("2")
         .parse()
-        .expect("unable to parse tty");
-
-    let greeter_user = env::var("GREETD_GREETER_USER").expect("unable to get greeter user");
-
-    let greeter_bin = env::var("GREETD_GREETER").expect("unable to get greeter");
+        .expect("vt parameter must be positive integer");
+    let greeter_bin = matches.value_of("greeter").unwrap().to_string();
+    let greeter_user = matches.value_of("greeteruser").unwrap().to_string();
 
     env::set_var("GREETD_SOCK", GREETD_SOCK);
 
+    let _ = remove_file(GREETD_SOCK.clone());
     let listener = Listener::new(GREETD_SOCK).expect("unable to create listener");
 
     let u = users::get_user_by_name(&greeter_user).expect("unable to get user struct");
