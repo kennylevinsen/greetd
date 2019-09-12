@@ -13,10 +13,19 @@ The greeter runs as a configured user, which is supposed to be one with no inter
 
 Future plans involve adding lock-screen support.
 
+Protocol subject to change soon.
+
 ## Included in the box:
 
 1. greetd, the daemon itself
 2. greetctl, a sample application to issue the login message.
+
+## Dumb demo
+
+1. echo "exec alacritty" > /tmp/sway-lm-config
+2. sudo greetd --vt 4 --greeter "sway --config /tmp/sway-lm-config" --greeter-user $LOGNAME
+3. (In the new terminal): greetctl
+4. Answer the questions, and the sway greeter will be replaced by whatever you typed if your login is successful.
 
 ## It doesn't work yet!
 
