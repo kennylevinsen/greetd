@@ -3,10 +3,9 @@ use std::error::Error;
 use std::ffi::CString;
 use std::io;
 
-use nix::errno::Errno;
 use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::unistd::{alarm, execv, fork, initgroups, setgid, setuid, ForkResult, Gid, Uid};
+use nix::unistd::{execv, fork, initgroups, setgid, setuid, ForkResult, Gid, Uid};
 
 use users::os::unix::UserExt;
 
@@ -27,11 +26,50 @@ pub struct Context<'a> {
 
     greeter_bin: String,
     greeter_user: String,
-    tty: u32,
+    tty: usize,
+}
+
+fn shoo(task: nix::unistd::Pid) {
+    eprintln!("sending SIGTERM");
+    let _ = nix::sys::signal::kill(task, Signal::SIGTERM);
+    eprintln!("waitpid with exponential backoff to 1 second");
+    let mut dead = false;
+    let mut sleep = 1;
+    while !dead && sleep < 1000 {
+        match waitpid(task, Some(WaitPidFlag::WNOHANG)) {
+            Ok(WaitStatus::Exited(..)) | Ok(WaitStatus::Signaled(..)) => {
+                dead = true;
+            }
+            Ok(WaitStatus::StillAlive) => {
+                sleep *= 10;
+            }
+            _ => panic!("waitpid on session returned unexpected status"),
+        }
+        std::thread::sleep(std::time::Duration::from_millis(sleep));
+    }
+    if !dead {
+        eprintln!("sending SIGKILL");
+        sleep = 1;
+        let _ = nix::sys::signal::kill(task, Signal::SIGKILL);
+        eprintln!("waitpid with exponential backoff to 1 second");
+        while !dead && sleep < 1000 {
+            match waitpid(task, Some(WaitPidFlag::WNOHANG)) {
+                Ok(WaitStatus::Exited(..)) | Ok(WaitStatus::Signaled(..)) => {
+                    dead = true;
+                }
+                Ok(WaitStatus::StillAlive) => {
+                    sleep *= 10;
+                }
+                _ => panic!("waitpid on session returned unexpected status"),
+            }
+            std::thread::sleep(std::time::Duration::from_millis(sleep));
+        }
+    }
+    eprintln!("done waiting");
 }
 
 impl<'a> Context<'a> {
-    pub fn new(greeter_bin: String, greeter_user: String, tty: u32) -> Context<'a> {
+    pub fn new(greeter_bin: String, greeter_user: String, tty: usize) -> Context<'a> {
         Context {
             session: None,
             greeter: None,
@@ -91,7 +129,7 @@ impl<'a> Context<'a> {
                 }
 
                 // Run
-                execv(&cpath, &cargs).unwrap();
+                execv(&cpath, &cargs).expect("unable to exec");
                 unreachable!("after exec");
             }
         };
@@ -107,6 +145,7 @@ impl<'a> Context<'a> {
         mut password: String,
         cmd: String,
     ) -> Result<(), Box<dyn Error>> {
+        eprintln!("initiating login");
         if self.session.is_some() {
             return Err(io::Error::new(io::ErrorKind::Other, "session already active").into());
         }
@@ -119,6 +158,8 @@ impl<'a> Context<'a> {
         if !auth.authenticate().is_ok() {
             return Err(io::Error::new(io::ErrorKind::Other, "authentication failed").into());
         }
+
+        eprintln!("login successful");
 
         let u = users::get_user_by_name(&username).expect("unable to get user struct");
 
@@ -139,6 +180,8 @@ impl<'a> Context<'a> {
         auth.env("XDG_VTNR", self.tty.to_string())?;
         auth.env("XDG_SEAT", "seat0")?;
 
+        eprintln!("opening session");
+
         auth.open_session().expect("unable to open session");
         password.scramble();
 
@@ -151,21 +194,14 @@ impl<'a> Context<'a> {
             env::vars().map(|(x, y)| format!("{}={}", x, y)).collect()
         };
 
+        eprintln!("terminating greeter");
+
         match self.greeter.take() {
-            Some(greeter) => {
-                let _ = nix::sys::signal::kill(greeter.task, Signal::SIGTERM);
-                alarm::set(1);
-                match waitpid(greeter.task, None) {
-                    Ok(_) => (),
-                    Err(nix::Error::Sys(Errno::EINTR)) => {
-                        let _ = nix::sys::signal::kill(greeter.task, Signal::SIGKILL);
-                    }
-                    Err(_) => (), // ???
-                }
-                alarm::cancel();
-            }
+            Some(greeter) => shoo(greeter.task),
             None => (),
         };
+
+        eprintln!("forking session task");
 
         let child = match fork()? {
             ForkResult::Parent { child, .. } => child,
@@ -187,7 +223,10 @@ impl<'a> Context<'a> {
                 // Set environment
                 for e in myenv {
                     let mut parts = e.splitn(2, '=');
-                    env::set_var(parts.next().unwrap(), parts.next().unwrap());
+                    match (parts.next(), parts.next()) {
+                        (Some(key), Some(value)) => env::set_var(key, value),
+                        _ => (),
+                    };
                 }
                 env::set_var("LOGNAME", &u.name());
                 env::set_var("HOME", &u.home_dir());
@@ -200,8 +239,10 @@ impl<'a> Context<'a> {
                     env::set_var("XDG_RUNTIME_DIR", format!("/run/user/{}", uid));
                 }
 
+                eprintln!("execing session task");
+
                 // Run
-                execv(&cpath, &cargs).unwrap();
+                execv(&cpath, &cargs).expect("unable to exec");
                 unreachable!("after exec");
             }
         };
@@ -236,6 +277,7 @@ impl<'a> Context<'a> {
                     Ok(WaitStatus::Exited(..)) | Ok(WaitStatus::Signaled(..)) => {
                         if self.session.is_none() {
                             // Greeter died on us, let's just die with it.
+                            eprintln!("greeter exited");
                             std::process::exit(1);
                         }
                     }
@@ -248,31 +290,14 @@ impl<'a> Context<'a> {
     }
 
     pub fn terminate(&mut self) {
-        if let Some(greeter) = &self.greeter {
-            let _ = nix::sys::signal::kill(greeter.task, Signal::SIGTERM);
-            alarm::set(1);
-            match waitpid(greeter.task, None) {
-                Ok(_) => (),
-                Err(nix::Error::Sys(Errno::EINTR)) => {
-                    let _ = nix::sys::signal::kill(greeter.task, Signal::SIGKILL);
-                }
-                Err(_) => (), // ???
-            }
-            alarm::cancel();
-        }
         if let Some(session) = &self.session {
-            let _ = nix::sys::signal::kill(session.task, Signal::SIGTERM);
-            alarm::set(5);
-            match waitpid(session.task, None) {
-                Ok(_) => (),
-                Err(nix::Error::Sys(Errno::EINTR)) => {
-                    let _ = nix::sys::signal::kill(session.task, Signal::SIGKILL);
-                }
-                Err(_) => (), // ???
-            }
-            alarm::cancel();
+            shoo(session.task);
+        }
+        if let Some(greeter) = &self.greeter {
+            shoo(greeter.task);
         }
 
+        eprintln!("terminating");
         std::process::exit(0);
     }
 }

@@ -20,4 +20,4 @@ Future plans involve adding lock-screen support.
 
 ## It doesn't work yet!
 
-Why are you using this yet? I haven't even tested it myself!
+Why are you using this? I haven't even tested it myself!
