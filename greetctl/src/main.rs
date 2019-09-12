@@ -1,8 +1,10 @@
 use std::env;
-use std::io::{self, BufRead, Write};
+use std::io::{self, Read, BufRead, Write};
 use std::os::unix::net::UnixStream;
+use std::collections::HashMap;
 
-use byteorder::{LittleEndian, WriteBytesExt};
+use greet_proto::{Request, Response, Header};
+
 use rpassword::prompt_password_stderr;
 
 fn prompt_stderr(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
@@ -12,32 +14,49 @@ fn prompt_stderr(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     Ok(stdin_iter.next().unwrap()?)
 }
 
-fn login(
-    username: String,
-    password: String,
-    cmd: String,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let msg_len = username.len() + password.len() + cmd.len() + 12;
-    let mut buf = Vec::with_capacity(msg_len + 16);
-    buf.write_u32::<LittleEndian>(0xAFBFCFDF)?; // Proto Magic
-    buf.write_u32::<LittleEndian>(1)?; // Proto version
-    buf.write_u32::<LittleEndian>(1)?; // Message type
-    buf.write_u32::<LittleEndian>(msg_len as u32)?; // Payload length
-    buf.write_u32::<LittleEndian>(username.len() as u32)?;
-    buf.extend(username.into_bytes());
-    buf.write_u32::<LittleEndian>(password.len() as u32)?;
-    buf.extend(password.into_bytes());
-    buf.write_u32::<LittleEndian>(cmd.len() as u32)?;
-    buf.extend(cmd.into_bytes());
-
-    let mut stream = UnixStream::connect(env::var("GREETD_SOCK")?)?;
-    stream.write_all(&buf)?;
-    Ok(())
-}
-
-fn main() {
+fn login() -> Result<(), Box<dyn std::error::Error>> {
     let username = prompt_stderr("Username: ").unwrap();
     let password = prompt_password_stderr("Password: ").unwrap();
     let command = prompt_stderr("Command: ").unwrap();
-    login(username, password, command).unwrap();
+
+    let request = Request::Login{
+        username,
+        password,
+        command: vec![command],
+        env: HashMap::new(),
+    };
+
+    let mut stream = UnixStream::connect(env::var("GREETD_SOCK")?)?;
+
+    // Write request
+    let req = request.to_bytes()?;
+    let header = Header::new(req.len() as u32);
+    stream.write_all(&header.to_bytes()?)?;
+    stream.write_all(&req)?;
+
+    // Read response
+    let mut header_buf = vec![0; Header::len()];
+    stream.read_exact(&mut header_buf)?;
+    let header = Header::from_slice(&header_buf)?;
+
+    let mut resp_buf = vec![0; header.len as usize];
+    stream.read_exact(&mut resp_buf)?;
+    let resp = Response::from_slice(&resp_buf)?;
+
+    match resp {
+        Response::LoginSuccess => Ok(()),
+        Response::LoginFailure => Err(std::io::Error::new(io::ErrorKind::Other, "authentication failed").into())
+    }
+}
+
+fn main() {
+    loop {
+        match login() {
+            Ok(()) => {
+                eprintln!("authentication successful");
+                break;
+            }
+            Err(err) => eprintln!("error: {:?}", err),
+        }
+    }
 }

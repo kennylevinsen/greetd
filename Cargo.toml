@@ -1,2 +1,2 @@
 [workspace]
-members = ["greetd", "greetctl"]
+members = ["greet_proto", "greetd", "greetctl"]

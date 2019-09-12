@@ -16,8 +16,9 @@ pub struct Signals {
 impl Signals {
     pub fn new() -> Result<Signals, Box<dyn Error>> {
         let mut mask = SigSet::empty();
-        mask.add(Signal::SIGCHLD);
+        mask.add(Signal::SIGALRM);
         mask.add(Signal::SIGTERM);
+        mask.add(Signal::SIGCHLD);
         mask.thread_block()?;
 
         let listener = SignalFd::with_flags(&mask, SfdFlags::SFD_NONBLOCK | SfdFlags::SFD_CLOEXEC)?;
@@ -39,6 +40,7 @@ impl Pollable for Signals {
         loop {
             match self.listener.read_signal() {
                 Ok(Some(sig)) => match Signal::from_c_int(sig.ssi_signo as i32)? {
+                    Signal::SIGALRM => ctx.alarm(),
                     Signal::SIGCHLD => ctx.check_children(),
                     Signal::SIGTERM => ctx.terminate(),
                     _ => (),
