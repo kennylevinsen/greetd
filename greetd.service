@@ -5,8 +5,9 @@ After=getty@tty2.service
 
 [Service]
 Type=idle
-ExecStart=/usr/local/bin/greetd --vt=2 --greeter=dlm2 --greeteruser=greetd
+ExecStart=/usr/local/bin/greetd --vt=2 --greeter=dlm --greeteruser=greeter
 StandardInput=tty
+StandardError=syslog
 TTYPath=/dev/tty2
 TTYReset=yes
 TTYVHangup=yes
