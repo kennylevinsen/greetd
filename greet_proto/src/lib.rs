@@ -1,11 +1,12 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::io;
-use std::collections::HashMap;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug)]
 pub struct Header {
     pub version: u32,
     pub len: u32,
@@ -17,7 +18,7 @@ impl Header {
     }
 
     pub fn new(len: u32) -> Header {
-        Header{
+        Header {
             version: 1,
             len: len,
         }
@@ -34,7 +35,7 @@ impl Header {
         let proto_version = cursor.read_u32::<LittleEndian>()?;
         let msg_len = cursor.read_u32::<LittleEndian>()?;
 
-        Ok(Header{
+        Ok(Header {
             version: proto_version,
             len: msg_len,
         })
@@ -52,12 +53,12 @@ impl Header {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub enum Request {
-    Login{
+    Login {
         username: String,
         password: String,
         command: Vec<String>,
-        env: HashMap<String, String>
-    }
+        env: HashMap<String, String>,
+    },
 }
 
 impl Request {
@@ -86,4 +87,3 @@ impl Response {
         serde_json::to_vec(self).map_err(|x| x.into())
     }
 }
-

@@ -1,9 +1,9 @@
-use std::env;
-use std::io::{self, Read, BufRead, Write};
-use std::os::unix::net::UnixStream;
 use std::collections::HashMap;
+use std::env;
+use std::io::{self, BufRead, Read, Write};
+use std::os::unix::net::UnixStream;
 
-use greet_proto::{Request, Response, Header};
+use greet_proto::{Header, Request, Response};
 
 use rpassword::prompt_password_stderr;
 
@@ -19,7 +19,7 @@ fn login() -> Result<(), Box<dyn std::error::Error>> {
     let password = prompt_password_stderr("Password: ").unwrap();
     let command = prompt_stderr("Command: ").unwrap();
 
-    let request = Request::Login{
+    let request = Request::Login {
         username,
         password,
         command: vec![command],
@@ -45,7 +45,9 @@ fn login() -> Result<(), Box<dyn std::error::Error>> {
 
     match resp {
         Response::LoginSuccess => Ok(()),
-        Response::LoginFailure => Err(std::io::Error::new(io::ErrorKind::Other, "authentication failed").into())
+        Response::LoginFailure => {
+            Err(std::io::Error::new(io::ErrorKind::Other, "authentication failed").into())
+        }
     }
 }
 

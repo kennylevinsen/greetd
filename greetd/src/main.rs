@@ -27,10 +27,12 @@ use crate::signals::Signals;
 ioctl_write_int_bad!(vt_activate, 0x5606);
 ioctl_write_int_bad!(vt_waitactive, 0x5607);
 
-const GREETD_SOCK: &'static str = "/run/greetd.sock";
-
 fn default_vt() -> usize {
     2
+}
+
+fn default_socket_path() -> String {
+    "/run/greetd.sock".to_string()
 }
 
 #[derive(Debug, Deserialize)]
@@ -39,6 +41,9 @@ struct Config {
     vt: usize,
     greeter: String,
     greeter_user: String,
+
+    #[serde(default = "default_socket_path")]
+    socket_path: String,
 }
 
 fn main() {
@@ -52,6 +57,13 @@ fn main() {
                 .long("vt")
                 .takes_value(true)
                 .help("VT to run on"),
+        )
+        .arg(
+            Arg::with_name("socket-path")
+                .short("s")
+                .long("socket-path")
+                .takes_value(true)
+                .help("socket path to use"),
         )
         .arg(
             Arg::with_name("greeter")
@@ -90,9 +102,10 @@ fn main() {
             }
         },
         Err(_) => Config {
-            vt: 2,
+            vt: default_vt(),
             greeter: "".to_string(),
             greeter_user: "".to_string(),
+            socket_path: default_socket_path(),
         },
     };
 
@@ -105,11 +118,10 @@ fn main() {
     if let Some(user) = matches.value_of("greeter-user") {
         config.greeter_user = user.to_string();
     }
-
-    if config.vt == 0 {
-        eprintln!("No vt specified. Run with --help for more information.");
-        std::process::exit(1);
+    if let Some(socket_path) = matches.value_of("socket-path") {
+        config.socket_path = socket_path.to_string();
     }
+
     if config.greeter.len() == 0 {
         eprintln!("No greeter specified. Run with --help for more information.");
         std::process::exit(1);
@@ -119,15 +131,18 @@ fn main() {
         std::process::exit(1);
     }
 
-    env::set_var("GREETD_SOCK", GREETD_SOCK);
+    eprintln!("starting greetd");
 
-    let _ = remove_file(GREETD_SOCK.clone());
-    let listener = Listener::new(GREETD_SOCK).expect("unable to create listener");
+    env::set_var("GREETD_SOCK", &config.socket_path);
+
+    let _ = remove_file(config.socket_path.clone());
+    let listener = Listener::new(&config.socket_path).expect("unable to create listener");
 
     let u = users::get_user_by_name(&config.greeter_user).expect("unable to get user struct");
     let uid = nix::unistd::Uid::from_raw(u.uid());
     let gid = nix::unistd::Gid::from_raw(u.primary_group_id());
-    chown(GREETD_SOCK, Some(uid), Some(gid)).expect("unable to chown greetd socket");
+    chown(config.socket_path.as_str(), Some(uid), Some(gid))
+        .expect("unable to chown greetd socket");
 
     let signals = Signals::new().expect("unable to create signalfd");
 

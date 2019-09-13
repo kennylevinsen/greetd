@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::io;
-use std::io::{Read, Write, Take};
+use std::io::{Read, Take, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 
@@ -57,12 +57,14 @@ impl Pollable for Client {
                             let header = Header::from_slice(self.buf.as_slice())?;
 
                             if header.version != 1 {
-                                return Err(io::Error::new(io::ErrorKind::Other, "invalid message version").into());
+                                return Err(io::Error::new(
+                                    io::ErrorKind::Other,
+                                    "invalid message version",
+                                )
+                                .into());
                             }
 
-                            self.state = ClientState::AwaitingPayload {
-                                len: header.len,
-                            };
+                            self.state = ClientState::AwaitingPayload { len: header.len };
                             self.stream.set_limit(header.len as u64);
                             self.buf.truncate(0);
                         }
@@ -87,7 +89,12 @@ impl Pollable for Client {
                             self.stream.set_limit(Header::len() as u64);
 
                             match Request::from_slice(&self.buf)? {
-                                Request::Login{ username, password, command, env } => {
+                                Request::Login {
+                                    username,
+                                    password,
+                                    command,
+                                    env,
+                                } => {
                                     self.buf.scramble();
 
                                     let resp = match ctx.login(username, password, command, env) {
@@ -95,9 +102,11 @@ impl Pollable for Client {
                                         Err(_) => Response::LoginFailure,
                                     };
 
-                                    let resp_bytes = resp.to_bytes().expect("unable to serialize response");
+                                    let resp_bytes =
+                                        resp.to_bytes().expect("unable to serialize response");
                                     let header = Header::new(resp_bytes.len() as u32);
-                                    let header_bytes = header.to_bytes().expect("unable to serialize header");
+                                    let header_bytes =
+                                        header.to_bytes().expect("unable to serialize header");
 
                                     if self.stream.get_mut().write_all(&header_bytes).is_err() {
                                         eprintln!("unable to write response header");
