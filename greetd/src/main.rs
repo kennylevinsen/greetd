@@ -1,10 +1,8 @@
 use std::cell::RefCell;
 use std::env;
 use std::fs::{read_to_string, remove_file};
-use std::os::unix::io::AsRawFd;
 use std::rc::Rc;
 
-use nix::ioctl_write_int_bad;
 use nix::poll::{poll, PollFd};
 use nix::unistd::chown;
 
@@ -12,6 +10,7 @@ use clap::{crate_authors, crate_version, App, Arg};
 
 use serde::Deserialize;
 
+mod pam;
 mod client;
 mod context;
 mod listener;
@@ -23,9 +22,6 @@ use crate::context::Context;
 use crate::listener::Listener;
 use crate::pollable::{PollRunResult, Pollable};
 use crate::signals::Signals;
-
-ioctl_write_int_bad!(vt_activate, 0x5606);
-ioctl_write_int_bad!(vt_waitactive, 0x5607);
 
 fn default_vt() -> usize {
     2
@@ -145,18 +141,6 @@ fn main() {
         .expect("unable to chown greetd socket");
 
     let signals = Signals::new().expect("unable to create signalfd");
-
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .read(false)
-        .open("/dev/console")
-        .expect("unable to open console");
-
-    unsafe {
-        vt_activate(file.as_raw_fd(), config.vt as i32).expect("unable to activate");
-        vt_waitactive(file.as_raw_fd(), config.vt as i32).expect("unable to wait for activation");
-    }
-    drop(file);
 
     let mut ctx = Context::new(config.greeter, config.greeter_user, config.vt);
     ctx.greet().expect("unable to start greeter");

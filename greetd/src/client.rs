@@ -5,6 +5,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 
 use nix::poll::PollFlags;
+use nix::fcntl::{FcntlArg, FdFlag, fcntl};
 
 use greet_proto::{Header, Request, Response};
 
@@ -26,6 +27,9 @@ pub struct Client {
 impl Client {
     pub fn new(stream: UnixStream) -> Result<Client, Box<dyn Error>> {
         stream.set_nonblocking(true)?;
+        let fd = stream.as_raw_fd();
+        let flags = fcntl(fd, FcntlArg::F_GETFD)?;
+        fcntl(fd, FcntlArg::F_SETFD(FdFlag::from_bits(flags).unwrap() | FdFlag::FD_CLOEXEC))?;
         Ok(Client {
             stream: stream.take(Header::len() as u64),
             buf: Vec::new(),
