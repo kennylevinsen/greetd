@@ -204,25 +204,16 @@ impl<'a> Context<'a> {
                     close(res).unwrap();
                 }
 
-                for fd in 0..=2 {
-                    close(fd as RawFd).expect("unable to close file descriptors");
-                }
-                match (p.vt, p.connect_tty) {
-                    (Some(vt), true) => {
-                        let res = open(format!("/dev/tty{}", vt).as_str(), OFlag::O_RDWR, Mode::empty()).expect("unable to open tty");
-                        dup2(res, 0 as RawFd).unwrap();
-                        dup2(res, 1 as RawFd).unwrap();
-                        dup2(res, 2 as RawFd).unwrap();
-                        close(res).unwrap();
-                    },
-                    _ => {
-                        let res = open("/dev/null", OFlag::O_RDWR, Mode::empty()).expect("unable to open /dev/null");
-                        dup2(res, 0 as RawFd).unwrap();
-                        dup2(res, 1 as RawFd).unwrap();
-                        dup2(res, 2 as RawFd).unwrap();
-                        close(res).unwrap();
-                    }
-                }
+                let console_path = match (p.vt, p.connect_tty) {
+                    (Some(_), true) => "/dev/tty",
+                    _ => "/dev/null",
+                };
+
+                let res = open(console_path, OFlag::O_RDWR, Mode::empty()).expect("unable to open tty");
+                dup2(res, 0 as RawFd).unwrap();
+                dup2(res, 1 as RawFd).unwrap();
+                dup2(res, 2 as RawFd).unwrap();
+                close(res).unwrap();
 
                 // Change working directory
                 let pwd = match env::set_current_dir(&p.home) {
