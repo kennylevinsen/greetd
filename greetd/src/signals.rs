@@ -40,9 +40,9 @@ impl Pollable for Signals {
         loop {
             match self.listener.read_signal() {
                 Ok(Some(sig)) => match Signal::from_c_int(sig.ssi_signo as i32)? {
-                    Signal::SIGALRM => ctx.alarm(),
-                    Signal::SIGCHLD => ctx.check_children(),
-                    Signal::SIGTERM => ctx.terminate(),
+                    Signal::SIGALRM => ctx.alarm()?,
+                    Signal::SIGCHLD => ctx.check_children()?,
+                    Signal::SIGTERM => ctx.terminate()?,
                     _ => (),
                 },
                 Ok(None) => break Ok(PollRunResult::Uneventful),

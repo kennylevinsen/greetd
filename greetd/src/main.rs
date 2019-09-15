@@ -11,6 +11,7 @@ use clap::{crate_authors, crate_version, App, Arg};
 use serde::Deserialize;
 
 mod pam;
+mod vt;
 mod client;
 mod context;
 mod listener;

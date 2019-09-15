@@ -7,7 +7,6 @@ use std::fs::File;
 use std::time::{Duration, Instant};
 use std::os::unix::io::{FromRawFd, RawFd};
 
-use nix::ioctl_write_int_bad;
 use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{alarm, close, dup2, execv, fork, initgroups, setgid, setuid, ForkResult, Pid, Gid, Uid, pipe};
@@ -23,9 +22,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use pam_sys::PamFlag;
 use crate::pam::session::PamSession;
 use crate::scrambler::Scrambler;
-
-ioctl_write_int_bad!(vt_activate, 0x5606);
-ioctl_write_int_bad!(vt_waitactive, 0x5607);
+use crate::vt;
 
 /// Session is an active session.
 struct Session {
@@ -208,12 +205,7 @@ impl<'a> Context<'a> {
 
                 // Switch VT.
                 if let Some(vt) = p.vt {
-                    let res = open("/dev/console", OFlag::O_RDWR, Mode::empty()).expect("unable to open console");
-                    unsafe {
-                        vt_activate(res, vt as i32).expect("unable to activate");
-                        vt_waitactive(res, vt as i32).expect("unable to wait for activation");
-                    }
-                    close(res).unwrap();
+                    vt::activate(vt).expect("unable to activate vt");
                 }
 
                 let console_path = match (p.vt, p.connect_tty) {
@@ -346,18 +338,19 @@ impl<'a> Context<'a> {
     }
 
     /// Notify the Context of an alarm.
-    pub fn alarm(&mut self) {
+    pub fn alarm(&mut self) -> Result<(), Box<dyn Error>> {
         // If we have a greeter and a pending session, kill the greeter now
         // so that we can get started.
         if let Some(greeter) = self.greeter.take() {
             if let Some(p) = self.pending_session.take() {
                 if p.opened.elapsed() > Duration::from_secs(5) {
                     shoo(greeter.sub_task);
+                    vt::set_mode(vt::Mode::Text)?;
                     let s = match self.run_session(p) {
                         Ok(s) => s,
                         Err(e) => {
                             eprintln!("session start failed: {:?}", e);
-                            return;
+                            return Err(e.into());
                         }
                     };
 
@@ -370,15 +363,17 @@ impl<'a> Context<'a> {
                 self.greeter = Some(greeter);
             }
         }
+
+        Ok(())
     }
 
     /// Notify the Context that it needs to check its children for termination.
     /// This should be called on SIGCHLD.
-    pub fn check_children(&mut self) {
+    pub fn check_children(&mut self) -> Result<(), Box<dyn Error>> {
         loop {
             match waitpid(None, Some(WaitPidFlag::WNOHANG)) {
                 // No pending exits.
-                Ok(WaitStatus::StillAlive) => break,
+                Ok(WaitStatus::StillAlive) => break Ok(()),
 
                 // We got an exit, see if it's something we need to clean up.
                 Ok(WaitStatus::Exited(pid, ..)) | Ok(WaitStatus::Signaled(pid, ..)) => {
@@ -386,6 +381,7 @@ impl<'a> Context<'a> {
                         Some(session) if session.task == pid || session.sub_task == pid => {
                             // Session task is dead, so kill the session and
                             // restart the greeter.
+                            vt::set_mode(vt::Mode::Text)?;
                             self.session = None;
                             eprintln!("session exited");
                             self.greet().expect("unable to start greeter");
@@ -395,6 +391,7 @@ impl<'a> Context<'a> {
                     match &self.greeter {
                         Some(greeter) if greeter.task == pid || greeter.sub_task == pid => {
                             self.greeter = None;
+                            vt::set_mode(vt::Mode::Text)?;
                             match self.pending_session.take() {
                                 Some(pending_session) => {
                                     eprintln!("starting pending session");
@@ -404,7 +401,7 @@ impl<'a> Context<'a> {
                                         Ok(s) => s,
                                         Err(e) => {
                                             eprintln!("session start failed: {:?}", e);
-                                            return;
+                                            return Err(e.into());
                                         }
                                     };
 
@@ -433,13 +430,14 @@ impl<'a> Context<'a> {
 
     /// Notify the Context that we want to terminate. This should be called on
     /// SIGTERM.
-    pub fn terminate(&mut self) {
+    pub fn terminate(&mut self) -> Result<(), Box<dyn Error>>  {
         if let Some(session) = self.session.take() {
             shoo(session.sub_task);
         }
         if let Some(greeter) = self.greeter.take() {
             shoo(greeter.sub_task);
         }
+        vt::set_mode(vt::Mode::Text)?;
 
         eprintln!("terminating");
         std::process::exit(0);
