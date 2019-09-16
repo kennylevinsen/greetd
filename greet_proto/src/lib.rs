@@ -74,8 +74,10 @@ impl Request {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub enum Response {
-    LoginSuccess,
-    LoginFailure,
+    Success,
+    LoginError {
+        description: String
+    },
 }
 
 impl Response {

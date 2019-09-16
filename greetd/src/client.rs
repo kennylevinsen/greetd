@@ -102,8 +102,8 @@ impl Pollable for Client {
                                     self.buf.scramble();
 
                                     let resp = match ctx.login(username, password, command, env) {
-                                        Ok(_) => Response::LoginSuccess,
-                                        Err(_) => Response::LoginFailure,
+                                        Ok(_) => Response::Success,
+                                        Err(e) => Response::LoginError{ description: format!("{}", e) },
                                     };
 
                                     let resp_bytes =

@@ -4,13 +4,8 @@ After=systemd-user-sessions.service plymouth-quit-wait.service
 After=getty@tty2.service
 
 [Service]
-Type=idle
-ExecStart=/usr/local/bin/greetd --vt=2 --greeter=dlm --greeteruser=greeter
-StandardInput=tty
-StandardError=syslog
-TTYPath=/dev/tty2
-TTYReset=yes
-TTYVHangup=yes
+Type=simple
+ExecStart=greetd
 Restart=always
 
 [Install]
