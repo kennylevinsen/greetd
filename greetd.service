@@ -6,6 +6,10 @@ After=getty@tty2.service
 [Service]
 Type=simple
 ExecStart=greetd
+StandardInput=tty
+StandardError=syslog
+TTYPath=/dev/tty2
+TTYReset=yes
 Restart=always
 
 [Install]
