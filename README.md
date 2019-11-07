@@ -34,8 +34,9 @@ The greeter runs as a configured user, which is supposed to be one with no inter
 
 ## Other greeters
 
-- dlm - Dumb Login Manager
-- wlgreet - Wayland greeter
+- gtkgreet - Simple GTK based greeter (to be used with something like `cage`)
+- dlm - Dumb Login Manager (using fbdev)
+- wlgreet - Wayland greeter (stale)
 
 # Protocol
 
