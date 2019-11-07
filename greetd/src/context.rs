@@ -134,16 +134,16 @@ impl<'a> Context<'a> {
         Ok(PendingSession {
             opened: Instant::now(),
             pam: pam_session,
+            class: class.to_string(),
+            vt: Some(self.vt),
+            connect_tty: true,
+            env: provided_env,
             uid,
             gid,
             home,
             shell,
             username,
-            class: class.to_string(),
-            vt: Some(self.vt),
-            connect_tty: true,
-            env: provided_env,
-            cmd: cmd,
+            cmd,
         })
     }
 
@@ -320,6 +320,10 @@ impl<'a> Context<'a> {
         cmd: Vec<String>,
         provided_env: HashMap<String, String>,
     ) -> Result<(), Box<dyn Error>> {
+        if !self.greeter.is_some() {
+            eprintln!("login request not valid when greeter is not active");
+            return Err(io::Error::new(io::ErrorKind::Other, "greeter not active").into());
+        }
         if self.session.is_some() {
             eprintln!("login session already active");
             return Err(io::Error::new(io::ErrorKind::Other, "session already active").into());
@@ -330,38 +334,42 @@ impl<'a> Context<'a> {
         password.scramble();
         self.pending_session = Some(pending_session);
 
-        // We give the greeter 10 seconds to prove itself well-behaved before
-        // we lose patience and shoot it in the back.
-        alarm::set(10);
+        // We give the greeter 5 seconds to prove itself well-behaved before
+        // we lose patience and shoot it in the back repeatedly.
+        alarm::set(5);
 
         Ok(())
     }
 
     /// Notify the Context of an alarm.
     pub fn alarm(&mut self) -> Result<(), Box<dyn Error>> {
-        // If we have a greeter and a pending session, kill the greeter now
-        // so that we can get started.
-        if let Some(greeter) = self.greeter.take() {
-            if let Some(p) = self.pending_session.take() {
-                if p.opened.elapsed() > Duration::from_secs(5) {
-                    shoo(greeter.sub_task);
-                    vt::set_mode(vt::Mode::Text)?;
-                    let s = match self.run_session(p) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            eprintln!("session start failed: {:?}", e);
-                            return Err(e.into());
-                        }
-                    };
-
-                    self.session = Some(s);
+        // Keep trying to terminate the greeter until it gives up.
+        if let Some(p) = self.pending_session.take() {
+            if let Some(g) = self.greeter.take() {
+                if p.opened.elapsed() > Duration::from_secs(10) {
+                    // We're out of patience.
+                    let _ = nix::sys::signal::kill(g.sub_task, Signal::SIGKILL);
+                    let _ = nix::sys::signal::kill(g.task, Signal::SIGKILL);
                 } else {
-                    self.pending_session = Some(p);
-                    self.greeter = Some(greeter);
+                    // Let's try to give it a gentle nudge.
+                    let _ = nix::sys::signal::kill(g.sub_task, Signal::SIGTERM);
                 }
-            } else {
-                self.greeter = Some(greeter);
+                self.greeter = Some(g);
+                self.pending_session = Some(p);
+                alarm::set(1);
+                return Ok(())
             }
+
+            vt::set_mode(vt::Mode::Text)?;
+            let s = match self.run_session(p) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("session start failed: {:?}", e);
+                    return Err(e.into());
+                }
+            };
+
+            self.session = Some(s);
         }
 
         Ok(())

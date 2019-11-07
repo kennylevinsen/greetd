@@ -51,6 +51,7 @@ impl Header {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 #[serde(tag = "type")]
 pub enum Request {
     Login {
@@ -73,6 +74,7 @@ impl Request {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
+#[serde(rename_all = "camelCase")]
 pub enum Response {
     Success,
     LoginError {
