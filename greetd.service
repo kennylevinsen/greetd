@@ -2,6 +2,7 @@
 Description=Greeter daemon
 After=systemd-user-sessions.service plymouth-quit-wait.service
 After=getty@tty2.service
+Conflicts=getty@tty2.service
 
 [Service]
 Type=simple
@@ -11,6 +12,9 @@ StandardError=syslog
 TTYPath=/dev/tty2
 TTYReset=yes
 Restart=always
+RestartSec=1
+StartLimitBurst=5
+StartLimitInterval=30
 
 [Install]
 Alias=display-manager.service
