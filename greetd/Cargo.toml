@@ -1,6 +1,6 @@
 [package]
 name = "greetd"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Kenny Levinsen <kl@kl.wtf>"]
 edition = "2018"
 
