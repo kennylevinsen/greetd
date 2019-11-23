@@ -11,9 +11,13 @@ ioctl_write_int_bad!(vt_kdsetmode, 0x4B3A);
 
 pub fn activate(vt: usize) -> Result<(), Box<dyn Error>> {
     let res = open("/dev/console", OFlag::O_RDWR, StatMode::empty())?;
-    unsafe {
-        vt_activate(res, vt as i32)?;
-        vt_waitactive(res, vt as i32)?;
+    if let Err(v) = unsafe { vt_activate(res, vt as i32) } {
+        close(res)?;
+        return Err(v.into());
+    }
+    if let Err(v) = unsafe { vt_waitactive(res, vt as i32) } {
+        close(res)?;
+        return Err(v.into());
     }
     close(res)?;
     Ok(())
@@ -35,11 +39,14 @@ impl Mode {
 }
 
 pub fn set_mode(mode: Mode) -> Result<(), Box<dyn Error>> {
-    let res = open("/dev/console", OFlag::O_RDWR, StatMode::empty())?;
+    let fd = open("/dev/console", OFlag::O_RDWR, StatMode::empty())?;
     let mode = mode.to_const();
-    unsafe {
-    	vt_kdsetmode(res, mode)?;
+    let ret = unsafe { vt_kdsetmode(fd, mode) };
+    close(fd)?;
+
+    if let Err(v) = ret {
+        Err(v.into())
+    } else {
+        Ok(())
     }
-    close(res)?;
-    Ok(())
 }
