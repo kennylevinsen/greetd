@@ -25,7 +25,18 @@ The greeter runs as a configured user, which is supposed to be one with no inter
 - config.toml, a configuration file example
 - greetd.service, a systemd service file example.
 
-## Dumb demo
+## Installation
+
+- `cp greeter.pam /etc/pam.d/greeter`
+- `cp greetd.service /etc/systemd/system/greetd.service`
+- `mkdir /etc/greeter`
+- `cp config.toml /etc/greeter/config.toml`
+- Install a greeter (dlm, gtkgreet, etc.) and configure greetd (`/etc/greeter/config.toml`)
+- Start the greetd service.
+
+## Dumb standalone demo
+
+(Requires the pam service installed)
 
 1. echo "exec alacritty" > /tmp/sway-lm-config
 2. sudo greetd --vt 4 --greeter "sway --config /tmp/sway-lm-config" --greeter-user $LOGNAME
