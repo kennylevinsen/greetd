@@ -295,16 +295,13 @@ impl<'a> Context<'a> {
             return Err(io::Error::new(io::ErrorKind::Other, "greeter already active").into());
         }
 
-        let mut env = HashMap::new();
-        env.insert("XDG_SESSION_TYPE".to_string(), "wayland".to_string());
-
         let pending_session = self.create_session(
             "greeter",
             "user",
             &self.greeter_user,
             "",
             vec![self.greeter_bin.to_string()],
-            env,
+            HashMap::new(),
         )?;
         let greeter = self.run_session(pending_session)?;
         self.greeter = Some(greeter);
