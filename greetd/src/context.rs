@@ -2,16 +2,18 @@ use std::collections::HashMap;
 use std::env;
 use std::error::Error;
 use std::ffi::CString;
-use std::io;
 use std::fs::File;
-use std::time::{Duration, Instant};
+use std::io;
 use std::os::unix::io::{FromRawFd, RawFd};
+use std::time::{Duration, Instant};
 
+use nix::fcntl::{open, OFlag};
 use nix::sys::signal::Signal;
-use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::unistd::{alarm, close, dup2, execv, fork, initgroups, setgid, setuid, ForkResult, Pid, Gid, Uid, pipe};
-use nix::fcntl::{OFlag, open};
 use nix::sys::stat::Mode;
+use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
+use nix::unistd::{
+    alarm, close, dup2, execv, fork, initgroups, pipe, setgid, setuid, ForkResult, Gid, Pid, Uid,
+};
 
 use libc::pid_t;
 
@@ -21,10 +23,10 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use greet_proto::ShutdownAction;
 
-use pam_sys::PamFlag;
 use crate::pam::session::PamSession;
 use crate::scrambler::Scrambler;
 use crate::vt;
+use pam_sys::PamFlag;
 
 /// Session is an active session.
 struct Session {
@@ -85,7 +87,7 @@ fn shoo(task: nix::unistd::Pid) {
                 Ok(WaitStatus::Exited(..)) | Ok(WaitStatus::Signaled(..)) => {
                     dead = true;
                 }
-               _ => {
+                _ => {
                     sleep *= 10;
                 }
             }
@@ -117,7 +119,6 @@ impl<'a> Context<'a> {
         cmd: Vec<String>,
         provided_env: HashMap<String, String>,
     ) -> Result<PendingSession<'a>, Box<dyn Error>> {
-
         let mut pam_session = PamSession::start(service)?;
         pam_session.converse.set_credentials(username, password);
         pam_session.authenticate(PamFlag::NONE)?;
@@ -128,7 +129,7 @@ impl<'a> Context<'a> {
         let uid = Uid::from_raw(u.uid());
         let gid = Gid::from_raw(u.primary_group_id());
 
-        let home =u.home_dir().to_str().unwrap().to_string();
+        let home = u.home_dir().to_str().unwrap().to_string();
         let shell = u.shell().to_str().unwrap().to_string();
         let username = u.name().to_str().unwrap().to_string();
 
@@ -150,11 +151,7 @@ impl<'a> Context<'a> {
     }
 
     // Start the session described by the PendingSession object.
-    fn run_session<'b>(
-        &mut self,
-        mut p: PendingSession<'b>,
-    ) -> Result<Session, Box<dyn Error>> {
-
+    fn run_session<'b>(&mut self, mut p: PendingSession<'b>) -> Result<Session, Box<dyn Error>> {
         // Pipe used to communicate the true PID of the final child.
         let (parentfd, childfd) = pipe()?;
 
@@ -169,35 +166,58 @@ impl<'a> Context<'a> {
                 close(parentfd).expect("unable to close parent pipe");
 
                 // Not the credentials you think.
-                p.pam.setcred(PamFlag::ESTABLISH_CRED).expect("unable to establish PAM credentials");
+                p.pam
+                    .setcred(PamFlag::ESTABLISH_CRED)
+                    .expect("unable to establish PAM credentials");
 
                 // PAM has to be provided a bunch of environment variables
                 // before open_session.
-                p.pam.putenv(&format!("XDG_SESSION_CLASS={}", p.class)).expect("unable to set session class");
+                p.pam
+                    .putenv(&format!("XDG_SESSION_CLASS={}", p.class))
+                    .expect("unable to set session class");
                 p.pam.putenv("XDG_SEAT=seat0").expect("unable to set seat");
                 for (key, value) in p.env.iter() {
-                    p.pam.putenv(&format!("{}={}", key, value)).expect("unable to set environment");
+                    p.pam
+                        .putenv(&format!("{}={}", key, value))
+                        .expect("unable to set environment");
                 }
                 if let Some(vt) = p.vt {
-                    p.pam.putenv(&format!("XDG_VTNR={}", vt)).expect("unable to set vt");
+                    p.pam
+                        .putenv(&format!("XDG_VTNR={}", vt))
+                        .expect("unable to set vt");
                 }
 
                 // Session time!
-                p.pam.open_session(PamFlag::NONE).expect("unable to open PAM session");
+                p.pam
+                    .open_session(PamFlag::NONE)
+                    .expect("unable to open PAM session");
 
-                p.pam.putenv(&format!("USER={}", &p.username)).expect("unable to set environment");
-                p.pam.putenv(&format!("LOGNAME={}", &p.username)).expect("unable to set environment");
-                p.pam.putenv(&format!("HOME={}", &p.home)).expect("unable to set environment");
-                p.pam.putenv(&format!("SHELL={}", &p.shell)).expect("unable to set environment");
+                p.pam
+                    .putenv(&format!("USER={}", &p.username))
+                    .expect("unable to set environment");
+                p.pam
+                    .putenv(&format!("LOGNAME={}", &p.username))
+                    .expect("unable to set environment");
+                p.pam
+                    .putenv(&format!("HOME={}", &p.home))
+                    .expect("unable to set environment");
+                p.pam
+                    .putenv(&format!("SHELL={}", &p.shell))
+                    .expect("unable to set environment");
 
                 // OpenSSH does this. No idea why.
-                p.pam.setcred(PamFlag::REINITIALIZE_CRED).expect("unable to establish PAM credentials");
+                p.pam
+                    .setcred(PamFlag::REINITIALIZE_CRED)
+                    .expect("unable to establish PAM credentials");
 
-                let pamenv = p.pam.getenvlist().expect("unable to get PAM environment").to_vec();
+                let pamenv = p
+                    .pam
+                    .getenvlist()
+                    .expect("unable to get PAM environment")
+                    .to_vec();
 
                 // Prepare some strings in C format that we'll need.
-                let cusername =
-                    CString::new(p.username.to_string()).unwrap();
+                let cusername = CString::new(p.username.to_string()).unwrap();
                 let cpath = CString::new("/bin/sh").unwrap();
                 let cargs = [
                     cpath.clone(),
@@ -216,7 +236,8 @@ impl<'a> Context<'a> {
                 };
 
                 // Hook up std(in|out|err).
-                let res = open(console_path, OFlag::O_RDWR, Mode::empty()).expect("unable to open tty");
+                let res =
+                    open(console_path, OFlag::O_RDWR, Mode::empty()).expect("unable to open tty");
                 dup2(res, 0 as RawFd).unwrap();
                 dup2(res, 1 as RawFd).unwrap();
                 dup2(res, 2 as RawFd).unwrap();
@@ -263,7 +284,8 @@ impl<'a> Context<'a> {
 
                 // Signal the inner PID to the parent process.
                 let mut f = unsafe { File::from_raw_fd(childfd) };
-                f.write_u64::<LittleEndian>(child.as_raw() as u64).expect("unable to write pid");
+                f.write_u64::<LittleEndian>(child.as_raw() as u64)
+                    .expect("unable to write pid");
                 drop(f);
 
                 waitpid(child, None).expect("unable to wait for child");
@@ -365,7 +387,7 @@ impl<'a> Context<'a> {
                 ];
                 execv(&cpath, &cargs).expect("unable to exec");
                 std::process::exit(0);
-            },
+            }
             _ => (),
         }
         Ok(())
@@ -387,7 +409,7 @@ impl<'a> Context<'a> {
                 self.greeter = Some(g);
                 self.pending_session = Some(p);
                 alarm::set(1);
-                return Ok(())
+                return Ok(());
             }
 
             vt::set_mode(vt::Mode::Text)?;
@@ -455,7 +477,7 @@ impl<'a> Context<'a> {
                         }
                         _ => (),
                     };
-                },
+                }
 
                 // Useless status.
                 Ok(_) => continue,
@@ -468,7 +490,7 @@ impl<'a> Context<'a> {
 
     /// Notify the Context that we want to terminate. This should be called on
     /// SIGTERM.
-    pub fn terminate(&mut self) -> Result<(), Box<dyn Error>>  {
+    pub fn terminate(&mut self) -> Result<(), Box<dyn Error>> {
         if let Some(session) = self.session.take() {
             shoo(session.sub_task);
         }

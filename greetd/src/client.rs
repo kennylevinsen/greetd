@@ -4,10 +4,10 @@ use std::io::{Read, Take, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 
+use nix::fcntl::{fcntl, FcntlArg, FdFlag};
 use nix::poll::PollFlags;
-use nix::fcntl::{FcntlArg, FdFlag, fcntl};
 
-use greet_proto::{Header, Request, Response, Failure};
+use greet_proto::{Failure, Header, Request, Response};
 
 use crate::context::Context;
 use crate::pollable::{PollRunResult, Pollable};
@@ -29,7 +29,10 @@ impl Client {
         stream.set_nonblocking(true)?;
         let fd = stream.as_raw_fd();
         let flags = fcntl(fd, FcntlArg::F_GETFD)?;
-        fcntl(fd, FcntlArg::F_SETFD(FdFlag::from_bits(flags).unwrap() | FdFlag::FD_CLOEXEC))?;
+        fcntl(
+            fd,
+            FcntlArg::F_SETFD(FdFlag::from_bits(flags).unwrap() | FdFlag::FD_CLOEXEC),
+        )?;
         Ok(Client {
             stream: stream.take(Header::len() as u64),
             buf: Vec::new(),
@@ -103,18 +106,20 @@ impl Pollable for Client {
                                     env,
                                 } => match ctx.login(username, password, command, env) {
                                     Ok(_) => Response::Success,
-                                    Err(e) => Response::Failure(Failure::LoginError{description: format!("{}", e) }),
+                                    Err(e) => Response::Failure(Failure::LoginError {
+                                        description: format!("{}", e),
+                                    }),
                                 },
-                                Request::Shutdown {
-                                    action
-                                } => match ctx.shutdown(action) {
+                                Request::Shutdown { action } => match ctx.shutdown(action) {
                                     Ok(_) => Response::Success,
-                                    Err(e) => Response::Failure(Failure::ShutdownError{action: action, description: format!("{}", e) }),
-                                }
+                                    Err(e) => Response::Failure(Failure::ShutdownError {
+                                        action: action,
+                                        description: format!("{}", e),
+                                    }),
+                                },
                             };
 
-                            let resp_bytes =
-                                resp.to_bytes().expect("unable to serialize response");
+                            let resp_bytes = resp.to_bytes().expect("unable to serialize response");
                             let header = Header::new(resp_bytes.len() as u32);
                             let header_bytes =
                                 header.to_bytes().expect("unable to serialize header");

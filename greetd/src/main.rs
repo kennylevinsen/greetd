@@ -10,14 +10,14 @@ use clap::{crate_authors, crate_version, App, Arg};
 
 use serde::Deserialize;
 
-mod pam;
-mod vt;
 mod client;
 mod context;
 mod listener;
+mod pam;
 mod pollable;
 mod scrambler;
 mod signals;
+mod vt;
 
 use crate::context::Context;
 use crate::listener::Listener;

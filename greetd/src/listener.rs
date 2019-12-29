@@ -4,7 +4,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::UnixListener;
 use std::rc::Rc;
 
-use nix::fcntl::{FcntlArg, FdFlag, fcntl};
+use nix::fcntl::{fcntl, FcntlArg, FdFlag};
 use nix::poll::PollFlags;
 
 use crate::client::Client;
@@ -21,7 +21,10 @@ impl Listener {
         listener.set_nonblocking(true)?;
         let fd = listener.as_raw_fd();
         let flags = fcntl(fd, FcntlArg::F_GETFD)?;
-        fcntl(fd, FcntlArg::F_SETFD(FdFlag::from_bits(flags).unwrap() | FdFlag::FD_CLOEXEC))?;
+        fcntl(
+            fd,
+            FcntlArg::F_SETFD(FdFlag::from_bits(flags).unwrap() | FdFlag::FD_CLOEXEC),
+        )?;
         Ok(Listener { listener })
     }
 }

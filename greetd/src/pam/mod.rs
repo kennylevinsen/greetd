@@ -1,8 +1,8 @@
 extern crate pam_sys;
 
-pub mod session;
 mod env;
 mod ffi;
+pub mod session;
 
 use pam_sys::PamReturnCode;
 use std::ffi::{CStr, CString};
