@@ -50,9 +50,9 @@ impl Header {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
-pub enum ExitAction {
+pub enum ShutdownAction {
     Poweroff,
     Reboot,
     Exit,
@@ -68,8 +68,8 @@ pub enum Request {
         command: Vec<String>,
         env: HashMap<String, String>,
     },
-    Exit {
-        action: ExitAction,
+    Shutdown {
+        action: ShutdownAction,
     },
 }
 
@@ -90,7 +90,8 @@ pub enum Failure {
     LoginError {
         description: String,
     },
-    ExitError {
+    ShutdownError {
+        action: ShutdownAction,
         description: String,
     },
 }
@@ -100,7 +101,7 @@ pub enum Failure {
 #[serde(rename_all = "camelCase")]
 pub enum Response {
     Success,
-    Failure(Failure)
+    Failure(Failure),
 }
 
 impl Response {

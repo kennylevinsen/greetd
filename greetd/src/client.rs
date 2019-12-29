@@ -105,11 +105,11 @@ impl Pollable for Client {
                                     Ok(_) => Response::Success,
                                     Err(e) => Response::Failure(Failure::LoginError{description: format!("{}", e) }),
                                 },
-                                Request::Exit {
+                                Request::Shutdown {
                                     action
-                                } => match ctx.exit(action) {
+                                } => match ctx.shutdown(action) {
                                     Ok(_) => Response::Success,
-                                    Err(e) => Response::Failure(Failure::ExitError{description: format!("{}", e) }),
+                                    Err(e) => Response::Failure(Failure::ShutdownError{action: action, description: format!("{}", e) }),
                                 }
                             };
 

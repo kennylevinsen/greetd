@@ -19,7 +19,7 @@ use users::os::unix::UserExt;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
-use greet_proto::ExitAction;
+use greet_proto::ShutdownAction;
 
 use pam_sys::PamFlag;
 use crate::pam::session::PamSession;
@@ -340,16 +340,20 @@ impl<'a> Context<'a> {
         Ok(())
     }
 
-    pub fn exit(&mut self, action: ExitAction) -> Result<(), Box<dyn Error>> {
+    pub fn shutdown(&mut self, action: ShutdownAction) -> Result<(), Box<dyn Error>> {
+        if !self.greeter.is_some() || self.session.is_some() {
+            eprintln!("shutdown request not valid when greeter is not active");
+            return Err(io::Error::new(io::ErrorKind::Other, "greeter not active").into());
+        }
+
         let cmd = match action {
-            ExitAction::Poweroff => "poweroff",
-            ExitAction::Reboot => "reboot",
-            ExitAction::Exit => {
+            ShutdownAction::Poweroff => "poweroff",
+            ShutdownAction::Reboot => "reboot",
+            ShutdownAction::Exit => {
                 self.terminate().unwrap();
                 unreachable!();
             }
         };
-
 
         match fork()? {
             ForkResult::Child => {
