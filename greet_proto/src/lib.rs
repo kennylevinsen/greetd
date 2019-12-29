@@ -52,6 +52,14 @@ impl Header {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub enum ExitAction {
+    Poweroff,
+    Reboot,
+    Exit,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 #[serde(tag = "type")]
 pub enum Request {
     Login {
@@ -59,6 +67,9 @@ pub enum Request {
         password: String,
         command: Vec<String>,
         env: HashMap<String, String>,
+    },
+    Exit {
+        action: ExitAction,
     },
 }
 
@@ -73,13 +84,23 @@ impl Request {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(tag = "errorType")]
+#[serde(rename_all = "camelCase")]
+pub enum Failure {
+    LoginError {
+        description: String,
+    },
+    ExitError {
+        description: String,
+    },
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "camelCase")]
 pub enum Response {
     Success,
-    LoginError {
-        description: String
-    },
+    Failure(Failure)
 }
 
 impl Response {

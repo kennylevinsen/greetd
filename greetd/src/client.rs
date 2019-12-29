@@ -7,7 +7,7 @@ use std::os::unix::net::UnixStream;
 use nix::poll::PollFlags;
 use nix::fcntl::{FcntlArg, FdFlag, fcntl};
 
-use greet_proto::{Header, Request, Response};
+use greet_proto::{Header, Request, Response, Failure};
 
 use crate::context::Context;
 use crate::pollable::{PollRunResult, Pollable};
@@ -92,35 +92,40 @@ impl Pollable for Client {
                             self.state = ClientState::AwaitingHeader;
                             self.stream.set_limit(Header::len() as u64);
 
-                            match Request::from_slice(&self.buf)? {
+                            let req = Request::from_slice(&self.buf)?;
+                            self.buf.scramble();
+
+                            let resp = match req {
                                 Request::Login {
                                     username,
                                     password,
                                     command,
                                     env,
-                                } => {
-                                    self.buf.scramble();
-
-                                    let resp = match ctx.login(username, password, command, env) {
-                                        Ok(_) => Response::Success,
-                                        Err(e) => Response::LoginError{ description: format!("{}", e) },
-                                    };
-
-                                    let resp_bytes =
-                                        resp.to_bytes().expect("unable to serialize response");
-                                    let header = Header::new(resp_bytes.len() as u32);
-                                    let header_bytes =
-                                        header.to_bytes().expect("unable to serialize header");
-
-                                    if self.stream.get_mut().write_all(&header_bytes).is_err() {
-                                        eprintln!("unable to write response header");
-                                        break Ok(PollRunResult::Dead);
-                                    }
-                                    if self.stream.get_mut().write_all(&resp_bytes).is_err() {
-                                        eprintln!("unable to write response");
-                                        break Ok(PollRunResult::Dead);
-                                    }
+                                } => match ctx.login(username, password, command, env) {
+                                    Ok(_) => Response::Success,
+                                    Err(e) => Response::Failure(Failure::LoginError{description: format!("{}", e) }),
+                                },
+                                Request::Exit {
+                                    action
+                                } => match ctx.exit(action) {
+                                    Ok(_) => Response::Success,
+                                    Err(e) => Response::Failure(Failure::ExitError{description: format!("{}", e) }),
                                 }
+                            };
+
+                            let resp_bytes =
+                                resp.to_bytes().expect("unable to serialize response");
+                            let header = Header::new(resp_bytes.len() as u32);
+                            let header_bytes =
+                                header.to_bytes().expect("unable to serialize header");
+
+                            if self.stream.get_mut().write_all(&header_bytes).is_err() {
+                                eprintln!("unable to write response header");
+                                break Ok(PollRunResult::Dead);
+                            }
+                            if self.stream.get_mut().write_all(&resp_bytes).is_err() {
+                                eprintln!("unable to write response");
+                                break Ok(PollRunResult::Dead);
                             }
                         }
                         Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {

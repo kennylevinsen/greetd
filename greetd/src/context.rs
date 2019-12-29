@@ -19,6 +19,8 @@ use users::os::unix::UserExt;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
+use greet_proto::ExitAction;
+
 use pam_sys::PamFlag;
 use crate::pam::session::PamSession;
 use crate::scrambler::Scrambler;
@@ -335,6 +337,33 @@ impl<'a> Context<'a> {
         // we lose patience and shoot it in the back repeatedly.
         alarm::set(5);
 
+        Ok(())
+    }
+
+    pub fn exit(&mut self, action: ExitAction) -> Result<(), Box<dyn Error>> {
+        let cmd = match action {
+            ExitAction::Poweroff => "poweroff",
+            ExitAction::Reboot => "reboot",
+            ExitAction::Exit => {
+                self.terminate().unwrap();
+                unreachable!();
+            }
+        };
+
+
+        match fork()? {
+            ForkResult::Child => {
+                let cpath = CString::new("/bin/sh").unwrap();
+                let cargs = [
+                    cpath.clone(),
+                    CString::new("-c").unwrap(),
+                    CString::new(cmd).unwrap(),
+                ];
+                execv(&cpath, &cargs).expect("unable to exec");
+                std::process::exit(0);
+            },
+            _ => (),
+        }
         Ok(())
     }
 

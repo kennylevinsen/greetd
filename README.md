@@ -66,6 +66,9 @@ Requests and responses are encoded the same.
 
 ### Login
 
+Attempts to log the user in. The specofied command will be run with the specified environment as the requested user if login is successful. The greeter must exit if the login is a success to permit this to happen.
+
+
 ```
 {
 	"type": "login",
@@ -89,11 +92,46 @@ Requests and responses are encoded the same.
 }
 ```
 
-### Login error
+### Failure
 
 ```
 {
-	"type": "loginError",
+	"type": "failure",
+	"errorType": "loginError",
+	"description": "..."
+}
+```
+
+### Exit
+
+Runs an exit action, such as powering the machine off.
+
+
+```
+{
+	"type": "exit",
+	"action": "reboot"
+}
+```
+
+Available actions are: `poweroff`, `reboot` and `exit` (terminates greetd).
+
+## Response
+
+### Success
+
+```
+{
+	"type": "success",
+}
+```
+
+### Failure
+
+```
+{
+	"type": "failure",
+	"errorType": "exitError",
 	"description": "..."
 }
 ```

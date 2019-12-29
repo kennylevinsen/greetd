@@ -45,9 +45,9 @@ fn login() -> Result<(), Box<dyn std::error::Error>> {
 
     match resp {
         Response::Success => Ok(()),
-        Response::LoginError { description } => {
-            Err(std::io::Error::new(io::ErrorKind::Other, format!("login error: {}", description)).into())
-        }
+        Response::Failure(err)  => {
+            Err(std::io::Error::new(io::ErrorKind::Other, format!("login error: {:?}", err)).into())
+        },
     }
 }
 
