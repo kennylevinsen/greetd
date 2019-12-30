@@ -1,11 +1,13 @@
 use std::error::Error;
+use std::ffi::c_void;
+use std::ffi::CString;
 use std::io;
 use std::ptr;
 
 use crate::pam::env::{get_pam_env, PamEnvList};
 use crate::pam::ffi::make_conversation;
 use crate::pam::PasswordConv;
-use pam_sys::{PamFlag, PamHandle, PamReturnCode};
+use pam_sys::{PamFlag, PamHandle, PamItemType, PamReturnCode};
 
 pub struct PamSession<'a> {
     handle: &'a mut PamHandle,
@@ -73,6 +75,17 @@ impl<'a> PamSession<'a> {
 
     pub fn putenv(&mut self, v: &str) -> Result<(), Box<dyn Error>> {
         self.last_code = pam_sys::putenv(self.handle, v);
+        match self.last_code {
+            PamReturnCode::SUCCESS => Ok(()),
+            _ => Err(io::Error::new(io::ErrorKind::Other, "unable to close session").into()),
+        }
+    }
+
+    pub fn set_item(&mut self, item: PamItemType, value: &str) -> Result<(), Box<dyn Error>> {
+        let s = CString::new(value).unwrap();
+        self.last_code = PamReturnCode::from(unsafe {
+            pam_sys::raw::pam_set_item(self.handle, item as i32, s.as_ptr() as *const c_void)
+        });
         match self.last_code {
             PamReturnCode::SUCCESS => Ok(()),
             _ => Err(io::Error::new(io::ErrorKind::Other, "unable to close session").into()),
