@@ -27,7 +27,7 @@ use greet_proto::ShutdownAction;
 use crate::pam::session::PamSession;
 use crate::scrambler::Scrambler;
 use crate::vt;
-use pam_sys::PamFlag;
+use pam_sys::{PamFlag, PamItemType};
 
 /// Session is an active session.
 struct Session {
@@ -190,6 +190,9 @@ impl<'a> Context<'a> {
                     p.pam
                         .putenv(&format!("XDG_VTNR={}", vt))
                         .expect("unable to set vt");
+                    p.pam
+                        .set_item(PamItemType::TTY, &format!("/dev/tty{}", vt))
+                        .expect("unable to set tty");
                 }
 
                 // PAM has to be provided a bunch of environment variables
