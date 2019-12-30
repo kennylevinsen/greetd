@@ -12,7 +12,8 @@ use nix::sys::signal::Signal;
 use nix::sys::stat::Mode;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{
-    alarm, close, dup2, execv, fork, initgroups, pipe, setgid, setuid, ForkResult, Gid, Pid, Uid,
+    alarm, close, dup2, execv, fork, initgroups, pipe, setgid, setsid, setuid, ForkResult, Gid,
+    Pid, Uid,
 };
 
 use libc::pid_t;
@@ -162,6 +163,9 @@ impl<'a> Context<'a> {
             }
             ForkResult::Child => {
                 close(parentfd).expect("unable to close parent pipe");
+
+                // Make this process a session leader.
+                setsid().expect("unable to set session leader");
 
                 if let Some(vt) = p.vt {
                     // Switch VT
