@@ -4,11 +4,12 @@ use std::error::Error;
 use std::ffi::CString;
 use std::fs::File;
 use std::os::unix::io::{FromRawFd, RawFd};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use nix::fcntl::{open, OFlag};
+use nix::sys::signal::Signal;
 use nix::sys::stat::Mode;
-use nix::sys::wait::waitpid;
+use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{
     close, dup2, execv, fork, initgroups, pipe, setgid, setsid, setuid, ForkResult, Gid, Pid, Uid,
 };
@@ -25,15 +26,67 @@ use pam_sys::{PamFlag, PamItemType};
 
 /// Session is an active session.
 pub struct Session {
-    pub task: Pid,
-    pub sub_task: Pid,
+    task: Pid,
+    sub_task: Pid,
+}
+
+impl Session {
+    /// Check if this session has this pid.
+    pub fn owns_pid(&self, pid: Pid) -> bool {
+        self.task == pid || self.sub_task == pid
+    }
+
+    /// Send SIGTERM to the session child.
+    pub fn term(&self) {
+        let _ = nix::sys::signal::kill(self.sub_task, Signal::SIGTERM);
+    }
+
+    /// Send SIGKILL to the session child.
+    pub fn kill(&self) {
+        let _ = nix::sys::signal::kill(self.sub_task, Signal::SIGKILL);
+        let _ = nix::sys::signal::kill(self.task, Signal::SIGKILL);
+    }
+
+    /// Terminate a session. Sends SIGTERM in a loop, then sends SIGKILL in a loop.
+    pub fn shoo(&self) {
+        let task = self.sub_task;
+        let _ = nix::sys::signal::kill(task, Signal::SIGTERM);
+        let mut dead = false;
+        let mut sleep = 1;
+        while !dead && sleep < 1000 {
+            match waitpid(task, Some(WaitPidFlag::WNOHANG)) {
+                Ok(WaitStatus::Exited(..)) | Ok(WaitStatus::Signaled(..)) => {
+                    dead = true;
+                }
+                _ => {
+                    sleep *= 10;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(sleep));
+        }
+        if !dead {
+            sleep = 1;
+            let _ = nix::sys::signal::kill(task, Signal::SIGKILL);
+            while !dead && sleep < 1000 {
+                match waitpid(task, Some(WaitPidFlag::WNOHANG)) {
+                    Ok(WaitStatus::Exited(..)) | Ok(WaitStatus::Signaled(..)) => {
+                        dead = true;
+                    }
+                    _ => {
+                        sleep *= 10;
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(sleep));
+            }
+        }
+    }
 }
 
 /// PendingSession represents a successful login that is pending session
 /// startup. It contains all the data necessary to start the session when the
 /// greeter has finally shut down.
 pub struct PendingSession<'a> {
-    pub opened: Instant,
+    opened: Instant,
     pam: PamSession<'a>,
     uid: Uid,
     gid: Gid,
@@ -47,8 +100,8 @@ pub struct PendingSession<'a> {
 }
 
 impl<'a> PendingSession<'a> {
-    // Create a PendingSession object with details required to start the
-    // specified session. Surceeds if the service accepts the credentials.
+    /// Create a PendingSession object with details required to start the
+    /// specified session. Surceeds if the service accepts the credentials.
     pub fn new(
         service: &'a str,
         class: &str,
@@ -88,7 +141,12 @@ impl<'a> PendingSession<'a> {
         })
     }
 
-    // Start the session described within the PendingSession
+    /// Report how long has elapsed since this pending session was created.
+    pub fn elapsed(&self) -> Duration {
+        self.opened.elapsed()
+    }
+
+    /// Start the session described within the PendingSession
     pub fn start(&mut self) -> Result<Session, Box<dyn Error>> {
         // Pipe used to communicate the true PID of the final child.
         let (parentfd, childfd) = pipe()?;

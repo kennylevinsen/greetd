@@ -4,7 +4,6 @@ use std::ffi::CString;
 use std::io;
 use std::time::Duration;
 
-use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{alarm, execv, fork, ForkResult};
 
@@ -23,39 +22,6 @@ pub struct Context<'a> {
     greeter_bin: String,
     greeter_user: String,
     vt: usize,
-}
-
-// Terminate a session. Sends SIGTERM in a loop, then sends SIGKILL in a loop.
-fn shoo(task: nix::unistd::Pid) {
-    let _ = nix::sys::signal::kill(task, Signal::SIGTERM);
-    let mut dead = false;
-    let mut sleep = 1;
-    while !dead && sleep < 1000 {
-        match waitpid(task, Some(WaitPidFlag::WNOHANG)) {
-            Ok(WaitStatus::Exited(..)) | Ok(WaitStatus::Signaled(..)) => {
-                dead = true;
-            }
-            _ => {
-                sleep *= 10;
-            }
-        }
-        std::thread::sleep(std::time::Duration::from_millis(sleep));
-    }
-    if !dead {
-        sleep = 1;
-        let _ = nix::sys::signal::kill(task, Signal::SIGKILL);
-        while !dead && sleep < 1000 {
-            match waitpid(task, Some(WaitPidFlag::WNOHANG)) {
-                Ok(WaitStatus::Exited(..)) | Ok(WaitStatus::Signaled(..)) => {
-                    dead = true;
-                }
-                _ => {
-                    sleep *= 10;
-                }
-            }
-            std::thread::sleep(std::time::Duration::from_millis(sleep));
-        }
-    }
 }
 
 impl<'a> Context<'a> {
@@ -163,13 +129,12 @@ impl<'a> Context<'a> {
         // Keep trying to terminate the greeter until it gives up.
         if let Some(mut p) = self.pending_session.take() {
             if let Some(g) = self.greeter.take() {
-                if p.opened.elapsed() > Duration::from_secs(10) {
+                if p.elapsed() > Duration::from_secs(10) {
                     // We're out of patience.
-                    let _ = nix::sys::signal::kill(g.sub_task, Signal::SIGKILL);
-                    let _ = nix::sys::signal::kill(g.task, Signal::SIGKILL);
+                    g.kill();
                 } else {
                     // Let's try to give it a gentle nudge.
-                    let _ = nix::sys::signal::kill(g.sub_task, Signal::SIGTERM);
+                    g.term();
                 }
                 self.greeter = Some(g);
                 self.pending_session = Some(p);
@@ -203,7 +168,7 @@ impl<'a> Context<'a> {
                 // We got an exit, see if it's something we need to clean up.
                 Ok(WaitStatus::Exited(pid, ..)) | Ok(WaitStatus::Signaled(pid, ..)) => {
                     match &self.session {
-                        Some(session) if session.task == pid || session.sub_task == pid => {
+                        Some(session) if session.owns_pid(pid) => {
                             // Session task is dead, so kill the session and
                             // restart the greeter.
                             vt::set_mode(vt::Mode::Text)?;
@@ -214,7 +179,7 @@ impl<'a> Context<'a> {
                         _ => (),
                     };
                     match &self.greeter {
-                        Some(greeter) if greeter.task == pid || greeter.sub_task == pid => {
+                        Some(greeter) if greeter.owns_pid(pid) => {
                             self.greeter = None;
                             vt::set_mode(vt::Mode::Text)?;
                             match self.pending_session.take() {
@@ -257,10 +222,10 @@ impl<'a> Context<'a> {
     /// SIGTERM.
     pub fn terminate(&mut self) -> Result<(), Box<dyn Error>> {
         if let Some(session) = self.session.take() {
-            shoo(session.sub_task);
+            session.shoo();
         }
         if let Some(greeter) = self.greeter.take() {
-            shoo(greeter.sub_task);
+            greeter.shoo();
         }
         vt::set_mode(vt::Mode::Text)?;
 
