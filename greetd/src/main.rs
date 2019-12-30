@@ -16,6 +16,7 @@ mod listener;
 mod pam;
 mod pollable;
 mod scrambler;
+mod session;
 mod signals;
 mod vt;
 

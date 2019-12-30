@@ -1,56 +1,18 @@
 use std::collections::HashMap;
-use std::env;
 use std::error::Error;
 use std::ffi::CString;
-use std::fs::File;
 use std::io;
-use std::os::unix::io::{FromRawFd, RawFd};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use nix::fcntl::{open, OFlag};
 use nix::sys::signal::Signal;
-use nix::sys::stat::Mode;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::unistd::{
-    alarm, close, dup2, execv, fork, initgroups, pipe, setgid, setsid, setuid, ForkResult, Gid,
-    Pid, Uid,
-};
-
-use libc::pid_t;
-
-use users::os::unix::UserExt;
-
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use nix::unistd::{alarm, execv, fork, ForkResult};
 
 use greet_proto::{ShutdownAction, VtSelection};
 
-use crate::pam::session::PamSession;
 use crate::scrambler::Scrambler;
+use crate::session::{PendingSession, Session};
 use crate::vt;
-use pam_sys::{PamFlag, PamItemType};
-
-/// Session is an active session.
-struct Session {
-    task: Pid,
-    sub_task: Pid,
-}
-
-/// PendingSession represents a successful login that is pending session
-/// startup. It contains all the data necessary to start the session when the
-/// greeter has finally shut down.
-struct PendingSession<'a> {
-    opened: Instant,
-    pam: PamSession<'a>,
-    uid: Uid,
-    gid: Gid,
-    home: String,
-    shell: String,
-    username: String,
-    class: String,
-    vt: usize,
-    env: HashMap<String, String>,
-    cmd: Vec<String>,
-}
 
 /// Context keeps track of running sessions and start new ones.
 pub struct Context<'a> {
@@ -108,218 +70,6 @@ impl<'a> Context<'a> {
         }
     }
 
-    // Create a PendingSession object with details required to start the
-    // specified session. Surceeds if the service accepts the credentials.
-    fn create_session(
-        &self,
-        service: &'a str,
-        class: &str,
-        username: &str,
-        password: &str,
-        cmd: Vec<String>,
-        provided_env: HashMap<String, String>,
-        vt: usize,
-    ) -> Result<PendingSession<'a>, Box<dyn Error>> {
-        let mut pam_session = PamSession::start(service)?;
-        pam_session.converse.set_credentials(username, password);
-        pam_session.authenticate(PamFlag::NONE)?;
-        pam_session.acct_mgmt(PamFlag::NONE)?;
-
-        // TODO: Fetch the username from the PAM session.
-        let u = users::get_user_by_name(&username).expect("unable to get user struct");
-        let uid = Uid::from_raw(u.uid());
-        let gid = Gid::from_raw(u.primary_group_id());
-
-        let home = u.home_dir().to_str().unwrap().to_string();
-        let shell = u.shell().to_str().unwrap().to_string();
-        let username = u.name().to_str().unwrap().to_string();
-
-        // Return our description of this session.
-        Ok(PendingSession {
-            opened: Instant::now(),
-            pam: pam_session,
-            class: class.to_string(),
-            env: provided_env,
-            vt,
-            uid,
-            gid,
-            home,
-            shell,
-            username,
-            cmd,
-        })
-    }
-
-    // Start the session described by the PendingSession object.
-    fn run_session<'b>(&mut self, mut p: PendingSession<'b>) -> Result<Session, Box<dyn Error>> {
-        // Pipe used to communicate the true PID of the final child.
-        let (parentfd, childfd) = pipe()?;
-
-        // PAM requires for unfathmoable reasons that we run this in a
-        // subprocess. Things seem to fail otherwise.
-        let child = match fork()? {
-            ForkResult::Parent { child, .. } => {
-                close(childfd).expect("unable to close child pipe");
-                child
-            }
-            ForkResult::Child => {
-                close(parentfd).expect("unable to close parent pipe");
-
-                // Make this process a session leader.
-                setsid().expect("unable to set session leader");
-
-                // Switch VT
-                vt::activate(p.vt).expect("unable to activate vt");
-
-                // Open the tty to make it our controlling terminal.
-                let res = open(
-                    format!("/dev/tty{}", p.vt).as_str(),
-                    OFlag::O_RDWR,
-                    Mode::empty(),
-                )
-                .expect("unable to open tty");
-
-                // Hook up std(in|out|err).
-                dup2(res, 0 as RawFd).unwrap();
-                dup2(res, 1 as RawFd).unwrap();
-                dup2(res, 2 as RawFd).unwrap();
-
-                close(res).unwrap();
-
-                // Tell logind about our VT and TTY choice.
-                p.pam
-                    .putenv(&format!("XDG_VTNR={}", p.vt))
-                    .expect("unable to set vt");
-                p.pam
-                    .set_item(PamItemType::TTY, &format!("/dev/tty{}", p.vt))
-                    .expect("unable to set tty");
-
-                // PAM has to be provided a bunch of environment variables
-                // before open_session. We pass any environment variables from
-                // our greeter through here as well. This allows them to affect
-                // PAM (more specifically, pam_systemd.so), as well as make it
-                // easier to gather and set all environment variables later.
-                for (key, value) in p.env.iter() {
-                    p.pam
-                        .putenv(&format!("{}={}", key, value))
-                        .expect("unable to set environment");
-                }
-                p.pam
-                    .putenv(&format!("XDG_SESSION_CLASS={}", p.class))
-                    .expect("unable to set session class");
-                p.pam.putenv("XDG_SEAT=seat0").expect("unable to set seat");
-                p.pam
-                    .putenv(&format!("USER={}", &p.username))
-                    .expect("unable to set environment");
-                p.pam
-                    .putenv(&format!("LOGNAME={}", &p.username))
-                    .expect("unable to set environment");
-                p.pam
-                    .putenv(&format!("HOME={}", &p.home))
-                    .expect("unable to set environment");
-                p.pam
-                    .putenv(&format!("SHELL={}", &p.shell))
-                    .expect("unable to set environment");
-
-                // Not the credentials you think.
-                p.pam
-                    .setcred(PamFlag::ESTABLISH_CRED)
-                    .expect("unable to establish PAM credentials");
-
-                // Session time!
-                p.pam
-                    .open_session(PamFlag::NONE)
-                    .expect("unable to open PAM session");
-
-                // OpenSSH does this. No idea why.
-                p.pam
-                    .setcred(PamFlag::REINITIALIZE_CRED)
-                    .expect("unable to establish PAM credentials");
-
-                let pamenv = p
-                    .pam
-                    .getenvlist()
-                    .expect("unable to get PAM environment")
-                    .to_vec();
-
-                // Prepare some strings in C format that we'll need.
-                let cusername = CString::new(p.username.to_string()).unwrap();
-                let cpath = CString::new("/bin/sh").unwrap();
-                let cargs = [
-                    cpath.clone(),
-                    CString::new("-c").unwrap(),
-                    CString::new(format!("[ -f /etc/profile ] && source /etc/profile; [ -f $HOME/.profile ] && source $HOME/.profile; exec {}", p.cmd.join(" "))).unwrap()
-                ];
-
-                // Change working directory
-                let pwd = match env::set_current_dir(&p.home) {
-                    Ok(_) => p.home.to_string(),
-                    Err(_) => {
-                        env::set_current_dir("/").expect("unable to set current dir");
-                        "/".to_string()
-                    }
-                };
-
-                // Transfer PAM environment to process, set some final things.
-                env::set_var("PWD", &pwd);
-                for (key, value) in pamenv {
-                    env::set_var(key, value);
-                }
-                if env::var("TERM").is_err() {
-                    env::set_var("TERM", "linux");
-                }
-                if env::var("XDG_RUNTIME_DIR").is_err() {
-                    env::set_var("XDG_RUNTIME_DIR", format!("/run/user/{}", p.uid));
-                }
-
-                // Drop privileges to target user
-                initgroups(&cusername, p.gid).expect("unable to init groups");
-                setgid(p.gid).expect("unable to set GID");
-                setuid(p.uid).expect("unable to set UID");
-
-                // We need to fork again. PAM is weird and gets upset if you
-                // exec from the process that opened the session, registering
-                // it automatically as a log-out.
-                let child = match fork()? {
-                    ForkResult::Parent { child, .. } => child,
-                    ForkResult::Child => {
-                        // Run
-                        close(childfd).expect("unable to close pipe");
-                        execv(&cpath, &cargs).expect("unable to exec");
-                        std::process::exit(0);
-                    }
-                };
-
-                // Signal the inner PID to the parent process.
-                let mut f = unsafe { File::from_raw_fd(childfd) };
-                f.write_u64::<LittleEndian>(child.as_raw() as u64)
-                    .expect("unable to write pid");
-                drop(f);
-
-                waitpid(child, None).expect("unable to wait for child");
-
-                let _ = p.pam.close_session(PamFlag::NONE);
-                let _ = p.pam.setcred(PamFlag::DELETE_CRED);
-                let _ = p.pam.end();
-                std::process::exit(0);
-            }
-        };
-
-        // We have no use for the PAM handle in the host process anymore
-        let _ = p.pam.setcred(PamFlag::DELETE_CRED);
-        let _ = p.pam.end();
-
-        // Read the true child PID.
-        let mut f = unsafe { File::from_raw_fd(parentfd) };
-        let sub_task = Pid::from_raw(f.read_u64::<LittleEndian>()? as pid_t);
-        drop(f);
-
-        Ok(Session {
-            task: child,
-            sub_task,
-        })
-    }
-
     /// Start a greeter session.
     pub fn greet(&mut self) -> Result<(), Box<dyn Error>> {
         if self.greeter.is_some() {
@@ -327,7 +77,7 @@ impl<'a> Context<'a> {
             return Err(io::Error::new(io::ErrorKind::Other, "greeter already active").into());
         }
 
-        let pending_session = self.create_session(
+        let mut pending_session = PendingSession::new(
             "greeter",
             "user",
             &self.greeter_user,
@@ -336,7 +86,7 @@ impl<'a> Context<'a> {
             HashMap::new(),
             self.vt,
         )?;
-        let greeter = self.run_session(pending_session)?;
+        let greeter = pending_session.start()?;
         self.greeter = Some(greeter);
 
         Ok(())
@@ -366,7 +116,7 @@ impl<'a> Context<'a> {
         };
 
         let pending_session =
-            self.create_session("login", "user", &username, &password, cmd, provided_env, vt)?;
+            PendingSession::new("login", "user", &username, &password, cmd, provided_env, vt)?;
         password.scramble();
         self.pending_session = Some(pending_session);
 
@@ -411,7 +161,7 @@ impl<'a> Context<'a> {
     /// Notify the Context of an alarm.
     pub fn alarm(&mut self) -> Result<(), Box<dyn Error>> {
         // Keep trying to terminate the greeter until it gives up.
-        if let Some(p) = self.pending_session.take() {
+        if let Some(mut p) = self.pending_session.take() {
             if let Some(g) = self.greeter.take() {
                 if p.opened.elapsed() > Duration::from_secs(10) {
                     // We're out of patience.
@@ -428,7 +178,7 @@ impl<'a> Context<'a> {
             }
 
             vt::set_mode(vt::Mode::Text)?;
-            let s = match self.run_session(p) {
+            let s = match p.start() {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("session start failed: {:?}", e);
@@ -468,11 +218,11 @@ impl<'a> Context<'a> {
                             self.greeter = None;
                             vt::set_mode(vt::Mode::Text)?;
                             match self.pending_session.take() {
-                                Some(pending_session) => {
+                                Some(mut pending_session) => {
                                     eprintln!("starting pending session");
                                     // Our greeter finally bit the dust so we can
                                     // start our pending session.
-                                    let s = match self.run_session(pending_session) {
+                                    let s = match pending_session.start() {
                                         Ok(s) => s,
                                         Err(e) => {
                                             eprintln!("session start failed: {:?}", e);
