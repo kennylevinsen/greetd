@@ -47,7 +47,6 @@ struct PendingSession<'a> {
     username: String,
     class: String,
     vt: Option<usize>,
-    connect_tty: bool,
     env: HashMap<String, String>,
     cmd: Vec<String>,
 }
@@ -139,7 +138,6 @@ impl<'a> Context<'a> {
             pam: pam_session,
             class: class.to_string(),
             vt: Some(self.vt),
-            connect_tty: true,
             env: provided_env,
             uid,
             gid,
@@ -165,33 +163,45 @@ impl<'a> Context<'a> {
             ForkResult::Child => {
                 close(parentfd).expect("unable to close parent pipe");
 
-                // Not the credentials you think.
-                p.pam
-                    .setcred(PamFlag::ESTABLISH_CRED)
-                    .expect("unable to establish PAM credentials");
-
-                // PAM has to be provided a bunch of environment variables
-                // before open_session.
-                p.pam
-                    .putenv(&format!("XDG_SESSION_CLASS={}", p.class))
-                    .expect("unable to set session class");
-                p.pam.putenv("XDG_SEAT=seat0").expect("unable to set seat");
-                for (key, value) in p.env.iter() {
-                    p.pam
-                        .putenv(&format!("{}={}", key, value))
-                        .expect("unable to set environment");
-                }
                 if let Some(vt) = p.vt {
+                    // Switch VT
+                    vt::activate(vt).expect("unable to activate vt");
+
+                    // Open the tty to make it our controlling terminal.
+                    let res = open(
+                        format!("/dev/tty{}", vt).as_str(),
+                        OFlag::O_RDWR,
+                        Mode::empty(),
+                    )
+                    .expect("unable to open tty");
+
+                    // Hook up std(in|out|err).
+                    dup2(res, 0 as RawFd).unwrap();
+                    dup2(res, 1 as RawFd).unwrap();
+                    dup2(res, 2 as RawFd).unwrap();
+
+                    close(res).unwrap();
+
+                    // Tell logind about our VT and TTY choice.
                     p.pam
                         .putenv(&format!("XDG_VTNR={}", vt))
                         .expect("unable to set vt");
                 }
 
-                // Session time!
+                // PAM has to be provided a bunch of environment variables
+                // before open_session. We pass any environment variables from
+                // our greeter through here as well. This allows them to affect
+                // PAM (more specifically, pam_systemd.so), as well as make it
+                // easier to gather and set all environment variables later.
+                for (key, value) in p.env.iter() {
+                    p.pam
+                        .putenv(&format!("{}={}", key, value))
+                        .expect("unable to set environment");
+                }
                 p.pam
-                    .open_session(PamFlag::NONE)
-                    .expect("unable to open PAM session");
-
+                    .putenv(&format!("XDG_SESSION_CLASS={}", p.class))
+                    .expect("unable to set session class");
+                p.pam.putenv("XDG_SEAT=seat0").expect("unable to set seat");
                 p.pam
                     .putenv(&format!("USER={}", &p.username))
                     .expect("unable to set environment");
@@ -204,6 +214,16 @@ impl<'a> Context<'a> {
                 p.pam
                     .putenv(&format!("SHELL={}", &p.shell))
                     .expect("unable to set environment");
+
+                // Not the credentials you think.
+                p.pam
+                    .setcred(PamFlag::ESTABLISH_CRED)
+                    .expect("unable to establish PAM credentials");
+
+                // Session time!
+                p.pam
+                    .open_session(PamFlag::NONE)
+                    .expect("unable to open PAM session");
 
                 // OpenSSH does this. No idea why.
                 p.pam
@@ -224,24 +244,6 @@ impl<'a> Context<'a> {
                     CString::new("-c").unwrap(),
                     CString::new(format!("[ -f /etc/profile ] && source /etc/profile; [ -f $HOME/.profile ] && source $HOME/.profile; exec {}", p.cmd.join(" "))).unwrap()
                 ];
-
-                // Switch VT.
-                if let Some(vt) = p.vt {
-                    vt::activate(vt).expect("unable to activate vt");
-                }
-
-                let console_path = match (p.vt, p.connect_tty) {
-                    (Some(_), true) => "/dev/tty",
-                    _ => "/dev/null",
-                };
-
-                // Hook up std(in|out|err).
-                let res =
-                    open(console_path, OFlag::O_RDWR, Mode::empty()).expect("unable to open tty");
-                dup2(res, 0 as RawFd).unwrap();
-                dup2(res, 1 as RawFd).unwrap();
-                dup2(res, 2 as RawFd).unwrap();
-                close(res).unwrap();
 
                 // Change working directory
                 let pwd = match env::set_current_dir(&p.home) {
