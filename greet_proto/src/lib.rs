@@ -51,7 +51,7 @@ impl Header {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 #[serde(untagged)]
 pub enum VtSelection {
     Current,
@@ -65,7 +65,7 @@ impl Default for VtSelection {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 #[serde(untagged)]
 pub enum ShutdownAction {
     Poweroff,
@@ -74,7 +74,7 @@ pub enum ShutdownAction {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 #[serde(tag = "type")]
 pub enum Request {
     Login {
@@ -102,8 +102,8 @@ impl Request {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(tag = "errorType")]
-#[serde(rename_all = "camelCase")]
+#[serde(tag = "error_type")]
+#[serde(rename_all = "snake_case")]
 pub enum Failure {
     LoginError {
         description: String,
@@ -116,7 +116,7 @@ pub enum Failure {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub enum Response {
     Success,
     Failure(Failure),
