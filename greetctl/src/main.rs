@@ -3,7 +3,7 @@ use std::env;
 use std::io::{self, BufRead, Read, Write};
 use std::os::unix::net::UnixStream;
 
-use greet_proto::{Header, Request, Response};
+use greet_proto::{Header, Request, Response, VtSelection};
 
 use rpassword::prompt_password_stderr;
 
@@ -24,6 +24,7 @@ fn login() -> Result<(), Box<dyn std::error::Error>> {
         password,
         command: vec![command],
         env: HashMap::new(),
+        vt: VtSelection::Current,
     };
 
     let mut stream = UnixStream::connect(env::var("GREETD_SOCK")?)?;

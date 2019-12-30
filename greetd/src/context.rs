@@ -22,7 +22,7 @@ use users::os::unix::UserExt;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
-use greet_proto::ShutdownAction;
+use greet_proto::{ShutdownAction, VtSelection};
 
 use crate::pam::session::PamSession;
 use crate::scrambler::Scrambler;
@@ -47,7 +47,7 @@ struct PendingSession<'a> {
     shell: String,
     username: String,
     class: String,
-    vt: Option<usize>,
+    vt: usize,
     env: HashMap<String, String>,
     cmd: Vec<String>,
 }
@@ -118,6 +118,7 @@ impl<'a> Context<'a> {
         password: &str,
         cmd: Vec<String>,
         provided_env: HashMap<String, String>,
+        vt: usize,
     ) -> Result<PendingSession<'a>, Box<dyn Error>> {
         let mut pam_session = PamSession::start(service)?;
         pam_session.converse.set_credentials(username, password);
@@ -138,8 +139,8 @@ impl<'a> Context<'a> {
             opened: Instant::now(),
             pam: pam_session,
             class: class.to_string(),
-            vt: Some(self.vt),
             env: provided_env,
+            vt,
             uid,
             gid,
             home,
@@ -167,33 +168,31 @@ impl<'a> Context<'a> {
                 // Make this process a session leader.
                 setsid().expect("unable to set session leader");
 
-                if let Some(vt) = p.vt {
-                    // Switch VT
-                    vt::activate(vt).expect("unable to activate vt");
+                // Switch VT
+                vt::activate(p.vt).expect("unable to activate vt");
 
-                    // Open the tty to make it our controlling terminal.
-                    let res = open(
-                        format!("/dev/tty{}", vt).as_str(),
-                        OFlag::O_RDWR,
-                        Mode::empty(),
-                    )
-                    .expect("unable to open tty");
+                // Open the tty to make it our controlling terminal.
+                let res = open(
+                    format!("/dev/tty{}", p.vt).as_str(),
+                    OFlag::O_RDWR,
+                    Mode::empty(),
+                )
+                .expect("unable to open tty");
 
-                    // Hook up std(in|out|err).
-                    dup2(res, 0 as RawFd).unwrap();
-                    dup2(res, 1 as RawFd).unwrap();
-                    dup2(res, 2 as RawFd).unwrap();
+                // Hook up std(in|out|err).
+                dup2(res, 0 as RawFd).unwrap();
+                dup2(res, 1 as RawFd).unwrap();
+                dup2(res, 2 as RawFd).unwrap();
 
-                    close(res).unwrap();
+                close(res).unwrap();
 
-                    // Tell logind about our VT and TTY choice.
-                    p.pam
-                        .putenv(&format!("XDG_VTNR={}", vt))
-                        .expect("unable to set vt");
-                    p.pam
-                        .set_item(PamItemType::TTY, &format!("/dev/tty{}", vt))
-                        .expect("unable to set tty");
-                }
+                // Tell logind about our VT and TTY choice.
+                p.pam
+                    .putenv(&format!("XDG_VTNR={}", p.vt))
+                    .expect("unable to set vt");
+                p.pam
+                    .set_item(PamItemType::TTY, &format!("/dev/tty{}", p.vt))
+                    .expect("unable to set tty");
 
                 // PAM has to be provided a bunch of environment variables
                 // before open_session. We pass any environment variables from
@@ -335,6 +334,7 @@ impl<'a> Context<'a> {
             "",
             vec![self.greeter_bin.to_string()],
             HashMap::new(),
+            self.vt,
         )?;
         let greeter = self.run_session(pending_session)?;
         self.greeter = Some(greeter);
@@ -349,6 +349,7 @@ impl<'a> Context<'a> {
         mut password: String,
         cmd: Vec<String>,
         provided_env: HashMap<String, String>,
+        vt: VtSelection,
     ) -> Result<(), Box<dyn Error>> {
         if !self.greeter.is_some() {
             eprintln!("login request not valid when greeter is not active");
@@ -359,8 +360,13 @@ impl<'a> Context<'a> {
             return Err(io::Error::new(io::ErrorKind::Other, "session already active").into());
         }
 
+        let vt = match vt {
+            VtSelection::Current => self.vt,
+            VtSelection::Vt(vt) => vt,
+        };
+
         let pending_session =
-            self.create_session("login", "user", &username, &password, cmd, provided_env)?;
+            self.create_session("login", "user", &username, &password, cmd, provided_env, vt)?;
         password.scramble();
         self.pending_session = Some(pending_session);
 
