@@ -100,8 +100,13 @@ pub struct PendingSession<'a> {
 }
 
 impl<'a> PendingSession<'a> {
+
     /// Create a PendingSession object with details required to start the
     /// specified session. Surceeds if the service accepts the credentials.
+    ///
+    /// This involves creating a PAM handle which will be used to run an
+    /// authentication attempt. If successful, this same PAM handle will later
+    /// be used to tart the session.
     pub fn new(
         service: &'a str,
         class: &str,
@@ -146,7 +151,67 @@ impl<'a> PendingSession<'a> {
         self.opened.elapsed()
     }
 
-    /// Start the session described within the PendingSession
+    /// Start the session described within the PendingSession.
+    ///
+    /// The flow is as follows:
+    ///
+    ///  1. Fork a subprocess. The parent will close the PAM handle immediately
+    ///     afterwards and wait to receive the final child PID over a pipe.
+    ///
+    ///  2. Make the child a session leader.
+    ///
+    ///  3. Switch VT.
+    ///
+    ///  4. Open the target TTY, which due to us being in a new, empty session
+    ///     makes it our new controlling terminal. Duplicate the TTY fd onto
+    ///     stdin, stdout and stderr to hook us up to it properly.
+    ///
+    ///  5. Pass target environment variables to PAM through pam_putenv. These
+    ///     variables affect decisions taken by PAM modules, pam_systemd.so in
+    ///     particular.The variables include user information like name, home
+    ///     folder and shell choice, target VT, session class and anything
+    ///     requested by the greeter. The TTY is also passed through
+    ///     pam_set_item - who liked unified interfaces anyway?
+    ///
+    ///  6. Create the PAM session using our pre-authenticated PAM handle.
+    ///
+    ///  7. Change working directory to the home folder of our target user.
+    ///
+    ///  8. Read out all environment variables from PAM, and patch up some
+    ///     necessary ones in case they did not end up set by PAM or the
+    ///     greeter.
+    ///
+    ///  9. Drop privileges to target and fork. The parent will write the child
+    ///     PID over a pipe to the main greetd process, wait for the child to
+    ///     die and perform cleanup.
+    ///
+    /// 10. Exec the target process in the child.
+    ///
+    /// This is all a lot more complicated and finicky than it should have
+    /// been.
+    ///
+    /// Notes:
+    ///
+    /// - The double-fork is necessary due to PAM. Empirical testing showed
+    ///   that opening a PAM session in the main process makes PAM think that
+    ///   the main process is going to be the session leader. Thus, PAM must be
+    ///   handled in the forked child. However, calling exec from the process
+    ///   that opened the session immediately terminates it. Thus, exec must be
+    ///   run in yet another forked child.
+    ///
+    /// - Use of the TIOCSCTTY ioctl instead of just opening the TTY to set the
+    ///   controlling terminal did not seem to work.
+    ///
+    /// - The TTY must be hooked up to stdin for child applications to start
+    ///   correctly. Not sure why.
+    ///
+    /// - If the controlling terminal is not properly changed, then a DRM
+    ///   session will start on the VT associated with the controlling
+    ///   terminal, rather than the VT we activated.
+    ///
+    /// - pam_systemd.so reads a lot of PAM environment variables, affecting
+    ///   the logind session. For this reason, it's best to just pass
+    ///   everything through.
     pub fn start(&mut self) -> Result<Session, Box<dyn Error>> {
         // Pipe used to communicate the true PID of the final child.
         let (parentfd, childfd) = pipe()
