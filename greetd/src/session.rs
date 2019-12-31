@@ -304,8 +304,8 @@ impl<'a> PendingSession<'a> {
         };
 
         // We have no use for the PAM handle in the host process anymore
-        let _ = self.pam.setcred(PamFlag::DELETE_CRED);
-        let _ = self.pam.end();
+        self.pam.setcred(PamFlag::DELETE_CRED).expect("unable to delete PAM credentials");
+        self.pam.end().expect("unable to end PAM session");
 
         // Read the true child PID.
         let mut f = unsafe { File::from_raw_fd(parentfd) };
