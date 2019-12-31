@@ -149,7 +149,8 @@ impl<'a> PendingSession<'a> {
     /// Start the session described within the PendingSession
     pub fn start(&mut self) -> Result<Session, Box<dyn Error>> {
         // Pipe used to communicate the true PID of the final child.
-        let (parentfd, childfd) = pipe()?;
+        let (parentfd, childfd) = pipe()
+            .map_err(|e| format!("could not create pipe: {}", e))?;
 
         // PAM requires for unfathmoable reasons that we run this in a
         // subprocess. Things seem to fail otherwise.
@@ -309,7 +310,9 @@ impl<'a> PendingSession<'a> {
 
         // Read the true child PID.
         let mut f = unsafe { File::from_raw_fd(parentfd) };
-        let sub_task = Pid::from_raw(f.read_u64::<LittleEndian>()? as pid_t);
+        let raw_pid = f.read_u64::<LittleEndian>()
+            .map_err(|e| format!("sesssion process failed: {}", e))?;
+        let sub_task = Pid::from_raw(raw_pid as pid_t);
         drop(f);
 
         Ok(Session {
