@@ -3,6 +3,7 @@ use std::env;
 use std::error::Error;
 use std::ffi::CString;
 use std::fs::File;
+use std::io::Write;
 use std::os::unix::io::{FromRawFd, RawFd};
 use std::time::{Duration, Instant};
 
@@ -146,11 +147,12 @@ impl<'a> Session<'a> {
     ///
     ///  2. Make the child a session leader.
     ///
-    ///  3. Switch VT.
-    ///
-    ///  4. Open the target TTY, which due to us being in a new, empty session
+    ///  3. Open the target TTY, which due to us being in a new, empty session
     ///     makes it our new controlling terminal. Duplicate the TTY fd onto
-    ///     stdin, stdout and stderr to hook us up to it properly.
+    ///     stdin, stdout and stderr to hook us up to it properly. We also send
+    ///     a clear code to the TTY to make it pretty before we switch to it.
+    ///
+    ///  4. Switch VT.
     ///
     ///  5. Pass target environment variables to PAM through pam_putenv. The
     ///     variables include user information like name, home folder and shell
@@ -223,10 +225,6 @@ impl<'a> Session<'a> {
                 // Make this process a session leader.
                 setsid().expect("unable to set session leader");
 
-                // Switch VT
-                vt::set_mode(vt::Mode::Text)?;
-                vt::activate(self.vt).expect("unable to activate vt");
-
                 // Open the tty to make it our controlling terminal.
                 let res = open(
                     format!("/dev/tty{}", self.vt).as_str(),
@@ -235,12 +233,21 @@ impl<'a> Session<'a> {
                 )
                 .expect("unable to open tty");
 
+                // Clear TTY so that it will be empty when we switch to it.
+                let mut tty_file = unsafe { File::from_raw_fd(res) };
+                tty_file.write_all("\x1B[H\x1B[2J".as_bytes())
+                    .expect("unable to clear TTY");
+
                 // Hook up std(in|out|err).
                 dup2(res, 0 as RawFd).unwrap();
                 dup2(res, 1 as RawFd).unwrap();
                 dup2(res, 2 as RawFd).unwrap();
 
                 close(res).unwrap();
+
+                // Switch VT
+                vt::activate(self.vt).expect("unable to activate vt");
+                vt::set_mode(vt::Mode::Text)?;
 
                 // Tell logind about our VT and TTY choice.
                 self.pam
