@@ -224,6 +224,7 @@ impl<'a> Session<'a> {
                 setsid().expect("unable to set session leader");
 
                 // Switch VT
+                vt::set_mode(vt::Mode::Text)?;
                 vt::activate(self.vt).expect("unable to activate vt");
 
                 // Open the tty to make it our controlling terminal.

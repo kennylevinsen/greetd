@@ -142,10 +142,10 @@ impl<'a> Context<'a> {
                 return Ok(());
             }
 
-            vt::set_mode(vt::Mode::Text)?;
             let s = match p.start() {
                 Ok(s) => s,
                 Err(e) => {
+                    vt::set_mode(vt::Mode::Text)?;
                     eprintln!("session start failed: {:?}", e);
                     return Err(e.into());
                 }
@@ -171,7 +171,6 @@ impl<'a> Context<'a> {
                         Some(session) if session.owns_pid(pid) => {
                             // Session task is dead, so kill the session and
                             // restart the greeter.
-                            vt::set_mode(vt::Mode::Text)?;
                             self.session = None;
                             eprintln!("session exited");
                             self.greet().expect("unable to start greeter");
@@ -181,7 +180,6 @@ impl<'a> Context<'a> {
                     match &self.greeter {
                         Some(greeter) if greeter.owns_pid(pid) => {
                             self.greeter = None;
-                            vt::set_mode(vt::Mode::Text)?;
                             match self.pending_session.take() {
                                 Some(mut pending_session) => {
                                     eprintln!("starting pending session");
@@ -200,6 +198,7 @@ impl<'a> Context<'a> {
                                 None => {
                                     if self.session.is_none() {
                                         // Greeter died on us, let's just die with it.
+                                        vt::set_mode(vt::Mode::Text)?;
                                         std::process::exit(1);
                                     }
                                 }
