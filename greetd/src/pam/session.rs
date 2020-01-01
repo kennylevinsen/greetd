@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::ffi::c_void;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::io;
 use std::ptr;
 
@@ -88,6 +88,17 @@ impl<'a> PamSession<'a> {
         });
         match self.last_code {
             PamReturnCode::SUCCESS => Ok(()),
+            _ => Err(io::Error::new(io::ErrorKind::Other, "unable to close session").into()),
+        }
+    }
+
+    pub fn get_user(&mut self) -> Result<String, Box<dyn Error>> {
+        let mut p: *const i8 = ptr::null_mut();
+        self.last_code = PamReturnCode::from(unsafe {
+            pam_sys::raw::pam_get_user(self.handle, &mut p, ptr::null())
+        });
+        match self.last_code {
+            PamReturnCode::SUCCESS => Ok((unsafe{ CStr::from_ptr(p) }).to_str().unwrap().to_string()),
             _ => Err(io::Error::new(io::ErrorKind::Other, "unable to close session").into()),
         }
     }
