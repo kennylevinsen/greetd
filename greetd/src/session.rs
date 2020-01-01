@@ -17,6 +17,7 @@ use nix::unistd::{
 use libc::pid_t;
 
 use users::os::unix::UserExt;
+use users::User;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
@@ -24,13 +25,13 @@ use crate::pam::session::PamSession;
 use crate::vt;
 use pam_sys::{PamFlag, PamItemType};
 
-/// Session is an active session.
-pub struct Session {
+/// SessionChild tracks the processes spawned by a session
+pub struct SessionChild {
     task: Pid,
     sub_task: Pid,
 }
 
-impl Session {
+impl SessionChild {
     /// Check if this session has this pid.
     pub fn owns_pid(&self, pid: Pid) -> bool {
         self.task == pid || self.sub_task == pid
@@ -82,27 +83,22 @@ impl Session {
     }
 }
 
-/// PendingSession represents a successful login that is pending session
-/// startup. It contains all the data necessary to start the session when the
-/// greeter has finally shut down.
-pub struct PendingSession<'a> {
+/// A device to initiate a logged in PAM session.
+pub struct Session<'a> {
     opened: Instant,
     pam: PamSession<'a>,
-    uid: Uid,
-    gid: Gid,
-    home: String,
-    shell: String,
-    username: String,
+    user: User,
+
     class: String,
     vt: usize,
     env: HashMap<String, String>,
     cmd: Vec<String>,
 }
 
-impl<'a> PendingSession<'a> {
+impl<'a> Session<'a> {
 
-    /// Create a PendingSession object with details required to start the
-    /// specified session. Surceeds if the service accepts the credentials.
+    /// Create a Session object with details required to start the specified
+    /// session. Surceeds if the service accepts the credentials.
     ///
     /// This involves creating a PAM handle which will be used to run an
     /// authentication attempt. If successful, this same PAM handle will later
@@ -115,43 +111,36 @@ impl<'a> PendingSession<'a> {
         cmd: Vec<String>,
         provided_env: HashMap<String, String>,
         vt: usize,
-    ) -> Result<PendingSession<'a>, Box<dyn Error>> {
+    ) -> Result<Session<'a>, Box<dyn Error>> {
         let mut pam_session = PamSession::start(service)?;
         pam_session.converse.set_credentials(username, password);
         pam_session.authenticate(PamFlag::NONE)?;
         pam_session.acct_mgmt(PamFlag::NONE)?;
 
-        // TODO: Fetch the username from the PAM session.
-        let u = users::get_user_by_name(&username).expect("unable to get user struct");
-        let uid = Uid::from_raw(u.uid());
-        let gid = Gid::from_raw(u.primary_group_id());
+        let pam_username = pam_session.get_user()?;
 
-        let home = u.home_dir().to_str().unwrap().to_string();
-        let shell = u.shell().to_str().unwrap().to_string();
-        let username = u.name().to_str().unwrap().to_string();
+        let user = users::get_user_by_name(&pam_username)
+            .ok_or("unable to get user info")?;
 
         // Return our description of this session.
-        Ok(PendingSession {
+        Ok(Session {
             opened: Instant::now(),
             pam: pam_session,
             class: class.to_string(),
             env: provided_env,
+            user,
             vt,
-            uid,
-            gid,
-            home,
-            shell,
-            username,
             cmd,
         })
     }
 
-    /// Report how long has elapsed since this pending session was created.
+    /// Report how long has elapsed since this session was created.
     pub fn elapsed(&self) -> Duration {
         self.opened.elapsed()
     }
 
-    /// Start the session described within the PendingSession.
+    ///
+    /// Start the session described within the Session.
     ///
     /// The flow is as follows:
     ///
@@ -166,12 +155,11 @@ impl<'a> PendingSession<'a> {
     ///     makes it our new controlling terminal. Duplicate the TTY fd onto
     ///     stdin, stdout and stderr to hook us up to it properly.
     ///
-    ///  5. Pass target environment variables to PAM through pam_putenv. These
-    ///     variables affect decisions taken by PAM modules, pam_systemd.so in
-    ///     particular.The variables include user information like name, home
-    ///     folder and shell choice, target VT, session class and anything
-    ///     requested by the greeter. The TTY is also passed through
-    ///     pam_set_item - who liked unified interfaces anyway?
+    ///  5. Pass target environment variables to PAM through pam_putenv. The
+    ///     variables include user information like name, home folder and shell
+    ///     choice, target VT, session class and anything requested by the
+    ///     greeter. The TTY is also passed through pam_set_item - who liked
+    ///     unified interfaces anyway?
     ///
     ///  6. Create the PAM session using our pre-authenticated PAM handle.
     ///
@@ -187,20 +175,18 @@ impl<'a> PendingSession<'a> {
     ///
     /// 10. Exec the target process in the child.
     ///
-    /// This is all a lot more complicated and finicky than it should have
-    /// been.
-    ///
     /// Notes:
     ///
     /// - The double-fork is necessary due to PAM. Empirical testing showed
     ///   that opening a PAM session in the main process makes PAM think that
     ///   the main process is going to be the session leader. Thus, PAM must be
-    ///   handled in the forked child. However, calling exec from the process
-    ///   that opened the session immediately terminates it. Thus, exec must be
-    ///   run in yet another forked child.
+    ///   handled in a forked child. However, calling exec from the process that
+    ///   opened the session immediately terminates it. Thus, exec must be run
+    ///   in yet another forked child.
     ///
     /// - Use of the TIOCSCTTY ioctl instead of just opening the TTY to set the
-    ///   controlling terminal did not seem to work.
+    ///   controlling terminal did not seem to work. It was also needlessly
+    ///   complicated.
     ///
     /// - The TTY must be hooked up to stdin for child applications to start
     ///   correctly. Not sure why.
@@ -212,7 +198,17 @@ impl<'a> PendingSession<'a> {
     /// - pam_systemd.so reads a lot of PAM environment variables, affecting
     ///   the logind session. For this reason, it's best to just pass
     ///   everything through.
-    pub fn start(&mut self) -> Result<Session, Box<dyn Error>> {
+    ///
+    /// - When handling TTY/VT, there are many devices to deal with:
+    ///    - /dev/console, the kernel "console" device. This is a virtual
+    ///      device representing the kernel log target, but is also the target
+    ///      for VT ioctls. See `man ioctl_console`.
+    ///    - /dev/tty, the controlling terminal of the current process. See
+    ///      `man iotctl_tty`.
+    ///    - /dev/tty0, the active terminal
+    ///    - /dev/ttyN, a specific terminal.
+    ///
+    pub fn start(&mut self) -> Result<SessionChild, Box<dyn Error>> {
         // Pipe used to communicate the true PID of the final child.
         let (parentfd, childfd) = pipe()
             .map_err(|e| format!("could not create pipe: {}", e))?;
@@ -266,6 +262,15 @@ impl<'a> PendingSession<'a> {
                         .putenv(&format!("{}={}", key, value))
                         .expect("unable to set environment");
                 }
+
+
+                let username = self.user.name().to_str().unwrap();
+                let home = self.user.home_dir().to_str().unwrap();
+                let shell = self.user.shell().to_str().unwrap();
+
+                let uid = Uid::from_raw(self.user.uid());
+                let gid = Gid::from_raw(self.user.primary_group_id());
+
                 self.pam
                     .putenv(&format!("XDG_SESSION_CLASS={}", self.class))
                     .expect("unable to set session class");
@@ -273,16 +278,16 @@ impl<'a> PendingSession<'a> {
                     .putenv("XDG_SEAT=seat0")
                     .expect("unable to set seat");
                 self.pam
-                    .putenv(&format!("USER={}", &self.username))
+                    .putenv(&format!("USER={}", username))
                     .expect("unable to set environment");
                 self.pam
-                    .putenv(&format!("LOGNAME={}", &self.username))
+                    .putenv(&format!("LOGNAME={}", username))
                     .expect("unable to set environment");
                 self.pam
-                    .putenv(&format!("HOME={}", &self.home))
+                    .putenv(&format!("HOME={}", home))
                     .expect("unable to set environment");
                 self.pam
-                    .putenv(&format!("SHELL={}", &self.shell))
+                    .putenv(&format!("SHELL={}", shell))
                     .expect("unable to set environment");
 
                 // Not the credentials you think.
@@ -307,7 +312,7 @@ impl<'a> PendingSession<'a> {
                     .to_vec();
 
                 // Prepare some strings in C format that we'll need.
-                let cusername = CString::new(self.username.to_string()).unwrap();
+                let cusername = CString::new(username).unwrap();
                 let cpath = CString::new("/bin/sh").unwrap();
                 let cargs = [
                     cpath.clone(),
@@ -316,8 +321,8 @@ impl<'a> PendingSession<'a> {
                 ];
 
                 // Change working directory
-                let pwd = match env::set_current_dir(&self.home) {
-                    Ok(_) => self.home.to_string(),
+                let pwd = match env::set_current_dir(home) {
+                    Ok(_) => home.to_string(),
                     Err(_) => {
                         env::set_current_dir("/").expect("unable to set current dir");
                         "/".to_string()
@@ -333,13 +338,13 @@ impl<'a> PendingSession<'a> {
                     env::set_var("TERM", "linux");
                 }
                 if env::var("XDG_RUNTIME_DIR").is_err() {
-                    env::set_var("XDG_RUNTIME_DIR", format!("/run/user/{}", self.uid));
+                    env::set_var("XDG_RUNTIME_DIR", format!("/run/user/{}", uid));
                 }
 
                 // Drop privileges to target user
-                initgroups(&cusername, self.gid).expect("unable to init groups");
-                setgid(self.gid).expect("unable to set GID");
-                setuid(self.uid).expect("unable to set UID");
+                initgroups(&cusername, gid).expect("unable to init groups");
+                setgid(gid).expect("unable to set GID");
+                setuid(uid).expect("unable to set UID");
 
                 // We need to fork again. PAM is weird and gets upset if you
                 // exec from the process that opened the session, registering
@@ -380,7 +385,7 @@ impl<'a> PendingSession<'a> {
         let sub_task = Pid::from_raw(raw_pid as pid_t);
         drop(f);
 
-        Ok(Session {
+        Ok(SessionChild {
             task: child,
             sub_task,
         })

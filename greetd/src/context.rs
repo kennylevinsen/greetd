@@ -10,14 +10,14 @@ use nix::unistd::{alarm, execv, fork, ForkResult};
 use greet_proto::{ShutdownAction, VtSelection};
 
 use crate::scrambler::Scrambler;
-use crate::session::{PendingSession, Session};
+use crate::session::{SessionChild, Session};
 use crate::vt;
 
 /// Context keeps track of running sessions and start new ones.
 pub struct Context<'a> {
-    session: Option<Session>,
-    greeter: Option<Session>,
-    pending_session: Option<PendingSession<'a>>,
+    session: Option<SessionChild>,
+    greeter: Option<SessionChild>,
+    pending_session: Option<Session<'a>>,
 
     greeter_bin: String,
     greeter_user: String,
@@ -43,7 +43,7 @@ impl<'a> Context<'a> {
             return Err(io::Error::new(io::ErrorKind::Other, "greeter already active").into());
         }
 
-        let mut pending_session = PendingSession::new(
+        let mut pending_session = Session::new(
             "greeter",
             "user",
             &self.greeter_user,
@@ -82,7 +82,7 @@ impl<'a> Context<'a> {
         };
 
         let pending_session =
-            PendingSession::new("login", "user", &username, &password, cmd, provided_env, vt)?;
+            Session::new("login", "user", &username, &password, cmd, provided_env, vt)?;
         password.scramble();
         self.pending_session = Some(pending_session);
 
