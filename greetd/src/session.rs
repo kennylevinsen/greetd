@@ -97,12 +97,14 @@ pub struct Session<'a> {
 
 impl<'a> Session<'a> {
 
+    ///
     /// Create a Session object with details required to start the specified
     /// session. Surceeds if the service accepts the credentials.
     ///
     /// This involves creating a PAM handle which will be used to run an
     /// authentication attempt. If successful, this same PAM handle will later
     /// be used to tart the session.
+    ///
     pub fn new(
         service: &'a str,
         class: &str,
@@ -132,11 +134,6 @@ impl<'a> Session<'a> {
             vt,
             cmd,
         })
-    }
-
-    /// Report how long has elapsed since this session was created.
-    pub fn elapsed(&self) -> Duration {
-        self.opened.elapsed()
     }
 
     ///
@@ -389,5 +386,10 @@ impl<'a> Session<'a> {
             task: child,
             sub_task,
         })
+    }
+
+    /// Report how long has elapsed since this session was created.
+    pub fn elapsed(&self) -> Duration {
+        self.opened.elapsed()
     }
 }
