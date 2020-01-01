@@ -168,11 +168,11 @@ impl<'a> Session<'a> {
     ///     necessary ones in case they did not end up set by PAM or the
     ///     greeter.
     ///
-    ///  9. Drop privileges to target and fork. The parent will write the child
-    ///     PID over a pipe to the main greetd process, wait for the child to
-    ///     die and perform cleanup.
+    ///  9. Fork yet another subprocess. The parent will write the child PID
+    ///     over a pipe to the main greetd process, wait for the child to die
+    ///     and perform cleanup.
     ///
-    /// 10. Exec the target process in the child.
+    /// 10. In the child, drop privileges and exec the target process.
     ///
     /// Notes:
     ///
@@ -197,6 +197,9 @@ impl<'a> Session<'a> {
     /// - pam_systemd.so reads a lot of PAM environment variables, affecting
     ///   the logind session. For this reason, it's best to just pass
     ///   everything through.
+    ///
+    /// - pam_close_session requires root privileges, so privilege drop must
+    ///   not happen in the intermediate process.
     ///
     /// - When handling TTY/VT, there are many devices to deal with:
     ///    - /dev/console, the kernel "console" device. This is a virtual
@@ -346,17 +349,17 @@ impl<'a> Session<'a> {
                     env::set_var("XDG_RUNTIME_DIR", format!("/run/user/{}", uid));
                 }
 
-                // Drop privileges to target user
-                initgroups(&cusername, gid).expect("unable to init groups");
-                setgid(gid).expect("unable to set GID");
-                setuid(uid).expect("unable to set UID");
-
                 // We need to fork again. PAM is weird and gets upset if you
                 // exec from the process that opened the session, registering
                 // it automatically as a log-out.
                 let child = match fork()? {
                     ForkResult::Parent { child, .. } => child,
                     ForkResult::Child => {
+                        // Drop privileges to target user
+                        initgroups(&cusername, gid).expect("unable to init groups");
+                        setgid(gid).expect("unable to set GID");
+                        setuid(uid).expect("unable to set UID");
+
                         // Run
                         close(childfd).expect("unable to close pipe");
                         execv(&cpath, &cargs).expect("unable to exec");
