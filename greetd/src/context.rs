@@ -111,12 +111,7 @@ impl<'a> Context<'a> {
         match fork()? {
             ForkResult::Child => {
                 let cpath = CString::new("/bin/sh").unwrap();
-                let cargs = [
-                    cpath.clone(),
-                    CString::new("-c").unwrap(),
-                    CString::new(cmd).unwrap(),
-                ];
-                execv(&cpath, &cargs).expect("unable to exec");
+                execv(&cpath, &[&cpath, &CString::new("-c").unwrap(), &CString::new(cmd).unwrap()]).expect("unable to exec");
                 std::process::exit(0);
             }
             _ => (),

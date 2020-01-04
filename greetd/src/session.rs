@@ -321,12 +321,7 @@ impl<'a> Session<'a> {
 
                 // Prepare some strings in C format that we'll need.
                 let cusername = CString::new(username).unwrap();
-                let cpath = CString::new("/bin/sh").unwrap();
-                let cargs = [
-                    cpath.clone(),
-                    CString::new("-c").unwrap(),
-                    CString::new(format!("[ -f /etc/profile ] && source /etc/profile; [ -f $HOME/.profile ] && source $HOME/.profile; exec {}", self.cmd.join(" "))).unwrap()
-                ];
+                let command = format!("[ -f /etc/profile ] && source /etc/profile; [ -f $HOME/.profile ] && source $HOME/.profile; exec {}", self.cmd.join(" "));
 
                 // Change working directory
                 let pwd = match env::set_current_dir(home) {
@@ -362,7 +357,8 @@ impl<'a> Session<'a> {
 
                         // Run
                         close(childfd).expect("unable to close pipe");
-                        execv(&cpath, &cargs).expect("unable to exec");
+                        let cpath = CString::new("/bin/sh").unwrap();
+                        execv(&cpath, &[&cpath, &CString::new("-c").unwrap(), &CString::new(command).unwrap()]).expect("unable to exec");
                         std::process::exit(0);
                     }
                 };
