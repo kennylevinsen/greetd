@@ -255,8 +255,8 @@ impl<'a> Session<'a> {
                 close(res).unwrap();
 
                 // Switch VT
-                vt::activate(self.vt).expect("unable to activate vt");
-                vt::set_mode(vt::Mode::Text)?;
+                vt::quick_activate(vt).expect("unable to activate vt");
+                vt::set_mode(vt::Mode::Text).expect("unable to set text mode");
 
                 // Tell logind about our VT and TTY choice.
                 self.pam
@@ -353,7 +353,7 @@ impl<'a> Session<'a> {
                 // We need to fork again. PAM is weird and gets upset if you
                 // exec from the process that opened the session, registering
                 // it automatically as a log-out.
-                let child = match fork()? {
+                let child = match fork().expect("unable to fork") {
                     ForkResult::Parent { child, .. } => child,
                     ForkResult::Child => {
                         // Drop privileges to target user
