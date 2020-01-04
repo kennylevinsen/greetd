@@ -10,16 +10,21 @@ use nix::sys::signalfd::{SfdFlags, SignalFd};
 use crate::context::Context;
 use crate::pollable::{PollRunResult, Pollable};
 
+pub fn blocked_sigset() -> SigSet {
+    let mut mask = SigSet::empty();
+    mask.add(Signal::SIGALRM);
+    mask.add(Signal::SIGTERM);
+    mask.add(Signal::SIGCHLD);
+    mask
+}
+
 pub struct Signals {
     listener: SignalFd,
 }
 
 impl Signals {
     pub fn new() -> Result<Signals, Box<dyn Error>> {
-        let mut mask = SigSet::empty();
-        mask.add(Signal::SIGALRM);
-        mask.add(Signal::SIGTERM);
-        mask.add(Signal::SIGCHLD);
+        let mask = blocked_sigset();
         mask.thread_block()?;
 
         let listener = SignalFd::with_flags(&mask, SfdFlags::SFD_NONBLOCK | SfdFlags::SFD_CLOEXEC)?;

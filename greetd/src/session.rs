@@ -24,6 +24,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use crate::pam::session::PamSession;
 use crate::vt;
+use crate::signals::blocked_sigset;
 use pam_sys::{PamFlag, PamItemType};
 
 /// SessionChild tracks the processes spawned by a session
@@ -224,6 +225,11 @@ impl<'a> Session<'a> {
             }
             ForkResult::Child => {
                 close(parentfd).expect("unable to close parent pipe");
+
+                // Unblock signals blocked in our parent due to our use of
+                // signalfd.
+                blocked_sigset().thread_unblock()
+                    .expect("unable to unblock signals");
 
                 // Make this process a session leader.
                 setsid().expect("unable to set session leader");
