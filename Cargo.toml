@@ -1,2 +1,8 @@
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+
 [workspace]
 members = ["greet_proto", "greetd", "greetctl"]
