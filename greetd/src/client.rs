@@ -7,11 +7,10 @@ use std::os::unix::net::UnixStream;
 use nix::fcntl::{fcntl, FcntlArg, FdFlag};
 use nix::poll::PollFlags;
 
-use greet_proto::{Failure, Header, Request, Response};
-
 use crate::context::Context;
 use crate::pollable::{PollRunResult, Pollable};
 use crate::scrambler::Scrambler;
+use greet_proto::{Failure, Header, Request, Response};
 
 enum ClientState {
     AwaitingHeader,

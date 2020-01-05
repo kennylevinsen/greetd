@@ -4,10 +4,11 @@ use std::ffi::{CStr, CString};
 use std::io;
 use std::ptr;
 
+use pam_sys::{PamFlag, PamHandle, PamItemType, PamReturnCode};
+
 use crate::pam::env::{get_pam_env, PamEnvList};
 use crate::pam::ffi::make_conversation;
 use crate::pam::PasswordConv;
-use pam_sys::{PamFlag, PamHandle, PamItemType, PamReturnCode};
 
 pub struct PamSession<'a> {
     handle: &'a mut PamHandle,
@@ -22,13 +23,11 @@ impl<'a> PamSession<'a> {
         let mut pam_handle: *mut PamHandle = ptr::null_mut();
 
         match pam_sys::start(service, None, &conv, &mut pam_handle) {
-            PamReturnCode::SUCCESS => unsafe {
-                Ok(PamSession {
-                    handle: &mut *pam_handle,
+            PamReturnCode::SUCCESS => Ok(PamSession {
+                    handle: unsafe { &mut *pam_handle },
                     converse: pam_conv,
                     last_code: PamReturnCode::SUCCESS,
-                })
-            },
+            }),
             _ => Err(io::Error::new(io::ErrorKind::Other, "unable to start pam session").into()),
         }
     }
@@ -77,8 +76,12 @@ impl<'a> PamSession<'a> {
         self.last_code = pam_sys::putenv(self.handle, v);
         match self.last_code {
             PamReturnCode::SUCCESS => Ok(()),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "unable to close session").into()),
+            _ => Err(io::Error::new(io::ErrorKind::Other, "unable to put environment").into()),
         }
+    }
+
+    pub fn hasenv(&mut self, v: &str) -> bool {
+        pam_sys::getenv(self.handle, v).is_some()
     }
 
     pub fn set_item(&mut self, item: PamItemType, value: &str) -> Result<(), Box<dyn Error>> {
@@ -88,7 +91,7 @@ impl<'a> PamSession<'a> {
         });
         match self.last_code {
             PamReturnCode::SUCCESS => Ok(()),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "unable to close session").into()),
+            _ => Err(io::Error::new(io::ErrorKind::Other, "unable to set item").into()),
         }
     }
 
@@ -98,8 +101,10 @@ impl<'a> PamSession<'a> {
             pam_sys::raw::pam_get_user(self.handle, &mut p, ptr::null())
         });
         match self.last_code {
-            PamReturnCode::SUCCESS => Ok((unsafe{ CStr::from_ptr(p) }).to_str().unwrap().to_string()),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "unable to close session").into()),
+            PamReturnCode::SUCCESS => {
+                Ok((unsafe { CStr::from_ptr(p) }).to_str().unwrap().to_string())
+            }
+            _ => Err(io::Error::new(io::ErrorKind::Other, "unable to get user").into()),
         }
     }
 

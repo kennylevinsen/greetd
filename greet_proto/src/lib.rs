@@ -1,3 +1,11 @@
+//! # `greetd` protocol library
+//!
+//! This library implements the greetd wire protocol.
+//!
+//! The library exposes a `Request` and a `Response` enum, together with a
+//! `Header` type needed to serialize a valid protocol message. Additional
+//! types are part of the different request and response values.
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::io;
@@ -52,10 +60,10 @@ impl Header {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
-#[serde(untagged)]
 pub enum VtSelection {
     Current,
-    Vt(usize),
+    Next,
+    Specific(usize),
 }
 
 impl Default for VtSelection {
@@ -66,7 +74,6 @@ impl Default for VtSelection {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
-#[serde(untagged)]
 pub enum ShutdownAction {
     Poweroff,
     Reboot,

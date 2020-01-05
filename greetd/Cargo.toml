@@ -4,8 +4,6 @@ version = "0.1.1"
 authors = ["Kenny Levinsen <kl@kl.wtf>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 nix = "0.16"
 pam-sys = "0.5.6"

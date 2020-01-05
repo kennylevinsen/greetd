@@ -7,11 +7,9 @@ use std::time::Duration;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{alarm, execv, fork, ForkResult};
 
-use greet_proto::{ShutdownAction, VtSelection};
-
 use crate::scrambler::Scrambler;
-use crate::session::{SessionChild, Session};
-use crate::vt;
+use crate::session::{Session, SessionChild};
+use greet_proto::{ShutdownAction, VtSelection};
 
 /// Context keeps track of running sessions and start new ones.
 pub struct Context<'a> {
@@ -32,7 +30,7 @@ impl<'a> Context<'a> {
             pending_session: None,
             greeter_bin: greeter_bin,
             greeter_user: greeter_user,
-            vt: vt,
+            vt,
         }
     }
 
@@ -50,9 +48,12 @@ impl<'a> Context<'a> {
             "",
             vec![self.greeter_bin.to_string()],
             HashMap::new(),
-            self.vt,
+            VtSelection::Specific(self.vt),
         )?;
-        let greeter = pending_session.start()?;
+        let greeter = match pending_session.start() {
+            Ok(s) => s,
+            Err(e) => return Err(format!("session start failed: {}", e).into()),
+        };
         self.greeter = Some(greeter);
 
         Ok(())
@@ -76,11 +77,6 @@ impl<'a> Context<'a> {
             return Err(io::Error::new(io::ErrorKind::Other, "session already active").into());
         }
 
-        let vt = match vt {
-            VtSelection::Current => self.vt,
-            VtSelection::Vt(vt) => vt,
-        };
-
         let pending_session =
             Session::new("login", "user", &username, &password, cmd, provided_env, vt)?;
         password.scramble();
@@ -103,15 +99,23 @@ impl<'a> Context<'a> {
             ShutdownAction::Poweroff => "poweroff",
             ShutdownAction::Reboot => "reboot",
             ShutdownAction::Exit => {
-                self.terminate().unwrap();
-                unreachable!();
+                self.terminate()?;
+                unreachable!("previous call must always fail");
             }
         };
 
         match fork()? {
             ForkResult::Child => {
                 let cpath = CString::new("/bin/sh").unwrap();
-                execv(&cpath, &[&cpath, &CString::new("-c").unwrap(), &CString::new(cmd).unwrap()]).expect("unable to exec");
+                execv(
+                    &cpath,
+                    &[
+                        &cpath,
+                        &CString::new("-c").unwrap(),
+                        &CString::new(cmd).unwrap(),
+                    ],
+                )
+                .expect("unable to exec");
                 std::process::exit(0);
             }
             _ => (),
@@ -139,11 +143,7 @@ impl<'a> Context<'a> {
 
             let s = match p.start() {
                 Ok(s) => s,
-                Err(e) => {
-                    vt::set_mode(vt::Mode::Text)?;
-                    eprintln!("session start failed: {:?}", e);
-                    return Err(e.into());
-                }
+                Err(e) => return Err(format!("session start failed: {}", e).into()),
             };
 
             self.session = Some(s);
@@ -165,10 +165,20 @@ impl<'a> Context<'a> {
                     match &self.session {
                         Some(session) if session.owns_pid(pid) => {
                             // Session task is dead, so kill the session and
-                            // restart the greeter.
+                            // restart the greeter. However, ensure that we are
+                            // not spamming th egreeter by waiting at least one
+                            // one second since login was requested before
+                            // restarting it.
+                            if session.elapsed() < Duration::from_secs(1) {
+                                std::thread::sleep(std::time::Duration::from_millis(1000));
+                            }
                             self.session = None;
                             eprintln!("session exited");
-                            self.greet().expect("unable to start greeter");
+                            if let Err(e) = self.greet() {
+                                return Err(
+                                    format!("session start failed for greeter: {}", e).into()
+                                );
+                            }
                         }
                         _ => (),
                     };
@@ -183,8 +193,9 @@ impl<'a> Context<'a> {
                                     let s = match pending_session.start() {
                                         Ok(s) => s,
                                         Err(e) => {
-                                            eprintln!("session start failed: {:?}", e);
-                                            return Err(e.into());
+                                            return Err(
+                                                format!("session start failed: {}", e).into()
+                                            );
                                         }
                                     };
 
@@ -193,8 +204,7 @@ impl<'a> Context<'a> {
                                 None => {
                                     if self.session.is_none() {
                                         // Greeter died on us, let's just die with it.
-                                        vt::set_mode(vt::Mode::Text)?;
-                                        std::process::exit(1);
+                                        return Err("greeter died with no pending session".into());
                                     }
                                 }
                             }
@@ -206,8 +216,11 @@ impl<'a> Context<'a> {
                 // Useless status.
                 Ok(_) => continue,
 
+                // Interrupted.
+                Err(nix::Error::Sys(nix::errno::Errno::EINTR)) => continue,
+
                 // Uh, what?
-                Err(e) => eprintln!("waitpid returned an error: {}", e),
+                Err(e) => eprintln!("waitpid returned an unexpected error: {}", e),
             }
         }
     }
@@ -221,9 +234,6 @@ impl<'a> Context<'a> {
         if let Some(greeter) = self.greeter.take() {
             greeter.shoo();
         }
-        vt::set_mode(vt::Mode::Text)?;
-
-        eprintln!("terminating");
-        std::process::exit(0);
+        return Err("terminating".into());
     }
 }

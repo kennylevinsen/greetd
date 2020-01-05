@@ -3,11 +3,9 @@ use std::env;
 use std::fs::{read_to_string, remove_file};
 use std::rc::Rc;
 
+use clap::{crate_authors, crate_version, App, Arg};
 use nix::poll::{poll, PollFd};
 use nix::unistd::chown;
-
-use clap::{crate_authors, crate_version, App, Arg};
-
 use serde::Deserialize;
 
 mod client;
@@ -18,7 +16,7 @@ mod pollable;
 mod scrambler;
 mod session;
 mod signals;
-mod vt;
+mod terminal;
 
 use crate::context::Context;
 use crate::listener::Listener;
@@ -26,7 +24,7 @@ use crate::pollable::{PollRunResult, Pollable};
 use crate::signals::Signals;
 
 fn default_vt() -> usize {
-    2
+    1
 }
 
 fn default_socket_path() -> String {
@@ -131,6 +129,11 @@ fn main() {
 
     eprintln!("starting greetd");
 
+    let start_vt = terminal::Terminal::open(0)
+        .expect("unable to open controlling terminal")
+        .vt_get_current()
+        .expect("unable to get current vt");
+
     env::set_var("GREETD_SOCK", &config.socket_path);
 
     let _ = remove_file(config.socket_path.clone());
@@ -145,7 +148,10 @@ fn main() {
     let signals = Signals::new().expect("unable to create signalfd");
 
     let mut ctx = Context::new(config.greeter, config.greeter_user, config.vt);
-    ctx.greet().expect("unable to start greeter");
+    if let Err(e) = ctx.greet() {
+        eprintln!("unable to start greeter: {}", e);
+        std::process::exit(1);
+    }
 
     let mut pollables: Vec<Rc<RefCell<Box<dyn Pollable>>>> = vec![
         Rc::new(RefCell::new(Box::new(listener))),
@@ -167,14 +173,15 @@ fn main() {
             if let Some(revents) = fd.revents() {
                 let pollable = &pollables[idx];
                 if revents.intersects(pollable.borrow().poll_flags()) {
-                    match pollable
-                        .borrow_mut()
-                        .run(&mut ctx)
-                        .expect("pollable run failed")
-                    {
-                        PollRunResult::Uneventful => (),
-                        PollRunResult::NewPollable(p) => new_pollables.push(p),
-                        PollRunResult::Dead => dead_pollables.push(idx),
+                    match pollable.borrow_mut().run(&mut ctx) {
+                        Ok(PollRunResult::Uneventful) => (),
+                        Ok(PollRunResult::NewPollable(p)) => new_pollables.push(p),
+                        Ok(PollRunResult::Dead) => dead_pollables.push(idx),
+                        Err(e) => {
+                            eprintln!("task failed: {}", e);
+                            terminal::restore(start_vt).expect("unable to reset vt");
+                            std::process::exit(0);
+                        }
                     }
                 }
             }

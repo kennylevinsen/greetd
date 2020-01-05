@@ -1,11 +1,10 @@
-extern crate pam_sys;
+use std::ffi::{CStr, CString};
+
+use pam_sys::PamReturnCode;
 
 mod env;
 mod ffi;
 pub mod session;
-
-use pam_sys::PamReturnCode;
-use std::ffi::{CStr, CString};
 
 pub struct PamError(PamReturnCode);
 

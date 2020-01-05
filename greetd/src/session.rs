@@ -7,28 +7,33 @@ use std::io::Write;
 use std::os::unix::io::{FromRawFd, RawFd};
 use std::time::{Duration, Instant};
 
-use nix::fcntl::{open, OFlag};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use libc::pid_t;
+use nix::fcntl::{fcntl, FcntlArg};
 use nix::sys::signal::Signal;
-use nix::sys::stat::Mode;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{
-    close, dup2, execv, fork, initgroups, pipe, setgid, setsid, setuid, ForkResult, Gid, Pid, Uid,
+    close, execve, fork, initgroups, pipe, setgid, setsid, setuid, ForkResult, Gid, Pid, Uid,
 };
-
-use libc::pid_t;
-
+use pam_sys::{PamFlag, PamItemType};
 use users::os::unix::UserExt;
 use users::User;
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-
 use crate::pam::session::PamSession;
-use crate::vt;
 use crate::signals::blocked_sigset;
-use pam_sys::{PamFlag, PamItemType};
+use crate::terminal;
+use greet_proto::VtSelection;
+
+fn dup_fd_cloexec(fd: RawFd) -> Result<RawFd, Box<dyn Error>> {
+    match fcntl(fd, FcntlArg::F_DUPFD_CLOEXEC(0)) {
+        Ok(fd) => Ok(fd),
+        Err(e) => Err(e.into()),
+    }
+}
 
 /// SessionChild tracks the processes spawned by a session
 pub struct SessionChild {
+    opened: Instant,
     task: Pid,
     sub_task: Pid,
 }
@@ -83,6 +88,11 @@ impl SessionChild {
             }
         }
     }
+
+    /// Report how long has elapsed since this session child was created.
+    pub fn elapsed(&self) -> Duration {
+        self.opened.elapsed()
+    }
 }
 
 /// A device to initiate a logged in PAM session.
@@ -92,13 +102,12 @@ pub struct Session<'a> {
     user: User,
 
     class: String,
-    vt: usize,
+    vt: VtSelection,
     env: HashMap<String, String>,
     cmd: Vec<String>,
 }
 
 impl<'a> Session<'a> {
-
     ///
     /// Create a Session object with details required to start the specified
     /// session. Surceeds if the service accepts the credentials.
@@ -114,7 +123,7 @@ impl<'a> Session<'a> {
         password: &str,
         cmd: Vec<String>,
         provided_env: HashMap<String, String>,
-        vt: usize,
+        vt: VtSelection,
     ) -> Result<Session<'a>, Box<dyn Error>> {
         let mut pam_session = PamSession::start(service)?;
         pam_session.converse.set_credentials(username, password);
@@ -123,8 +132,7 @@ impl<'a> Session<'a> {
 
         let pam_username = pam_session.get_user()?;
 
-        let user = users::get_user_by_name(&pam_username)
-            .ok_or("unable to get user info")?;
+        let user = users::get_user_by_name(&pam_username).ok_or("unable to get user info")?;
 
         // Return our description of this session.
         Ok(Session {
@@ -138,264 +146,277 @@ impl<'a> Session<'a> {
         })
     }
 
+    /// The entry point for the session worker process. The session worker is
+    /// responsible for the entirety of the session setup and execution. It is
+    /// started by Session::start.
+    fn session_worker(&mut self, childfd: RawFd) -> Result<(), Box<dyn Error>> {
+
+        // Clear the signal masking that was inherited from the parent.
+        blocked_sigset()
+            .thread_unblock()
+            .map_err(|e| format!("unable to unblock signals: {}", e))?;
+
+        // Make this process a session leader.
+        setsid().map_err(|e| format!("unable to become session leader: {}", e))?;
+
+        // Select VT.
+        let console = terminal::Terminal::open(0)?;
+        let vt = match self.vt {
+            VtSelection::Specific(vt) => vt,
+            VtSelection::Next => console.vt_get_next()?,
+            VtSelection::Current => console.vt_get_current()?,
+        };
+
+        // Opening our target terminal. This will automatically make it our
+        // controlling terminal. An attempt was made to use TIOCSCTTY to do
+        // this explicitly, but it neither worked nor was worth the additional
+        // code.
+        let mut target_vt = terminal::Terminal::open(vt)?;
+
+        eprintln!("session worker: selecting vt {}", target_vt.terminal());
+
+        // Hook up std(in|out|err). This allows us to run console applications.
+        // Also, hooking up stdin is required, as applications otherwise fail to
+        // start, both for graphical and console-based applications. I do not
+        // know why this is the case.
+        target_vt.term_connect_pipes()?;
+
+        // Clear TTY so that it will be empty when we switch to it.
+        target_vt.term_clear()?;
+
+        // Ensure that the current VT is switchable. This fix is probably not
+        // need 99% of the time, but it is nice to be sure that the VT cannot be
+        // left in an unresponsive mode.
+        console.vt_fix_switching()?;
+
+        // Set the target VT mode to text for compatibility. Other login
+        // managers set this to graphics, but that disallows start of textual
+        // applications, which greetd aims to support.
+        target_vt.set_kdmode(terminal::KdMode::Text)?;
+
+        // Take control of VT switching, which is required for some reason when
+        // you switch to a TTY that has not been allocated already. VT_OPENQRY,
+        // which is used by Terminal::vt_get_next, always returns unallocated
+        // VTs. This step would not be necessary if we only targetted VTs that
+        // had already been allocated by, say, systemd's autovt, which is what
+        // normally sets up VTs for getty console logins.
+        target_vt.vt_process_switch_control(true)?;
+
+        // Perform a switch to the target VT if required.
+        console.vt_quick_activate(vt)?;
+
+        // We no longer need these, so close them to avoid inheritance.
+        drop(console);
+        drop(target_vt);
+
+        // Prepare some values from the user struct we gathered earlier.
+        let username = self.user.name().to_str().unwrap_or("");
+        let home = self.user.home_dir().to_str().unwrap_or("");
+        let shell = self.user.shell().to_str().unwrap_or("");
+        let uid = Uid::from_raw(self.user.uid());
+        let gid = Gid::from_raw(self.user.primary_group_id());
+
+        // PAM has to be provided a bunch of environment variables before
+        // open_session. We pass any environment variables from our greeter
+        // through here as well. This allows them to affect PAM (more
+        // specifically, pam_systemd.so), as well as make it easier to gather
+        // and set all environment variables later.
+        let prepared_env = [
+            "XDG_SEAT=seat0".to_string(),
+            format!("XDG_SESSION_CLASS={}", self.class),
+            format!("XDG_VTNR={}", vt),
+            format!("USER={}", username),
+            format!("LOGNAME={}", username),
+            format!("HOME={}", home),
+            format!("SHELL={}", shell),
+        ];
+
+        let greeter_env: Vec<String> = self
+            .env
+            .iter()
+            .map(|(key, value)| format!("{}={}", key, value))
+            .collect();
+
+        for e in prepared_env.into_iter().chain(greeter_env.iter()) {
+            self.pam
+                .putenv(e)
+                .map_err(|e| format!("unable to set PAM environment: {}", e))?;
+        }
+
+        // Tell PAM what TTY we're targetting, which is used by logind.
+        self.pam
+            .set_item(PamItemType::TTY, &format!("/dev/tty{}", vt))
+            .map_err(|e| format!("unable to set PAM TTY item: {}", e))?;
+
+        // Not the credentials you think.
+        self.pam
+            .setcred(PamFlag::ESTABLISH_CRED)
+            .map_err(|e| format!("unable to establish PAM credentials: {}", e))?;
+
+        // Session time!
+        self.pam
+            .open_session(PamFlag::NONE)
+            .map_err(|e| format!("unable to open PAM session: {}", e))?;
+
+        // OpenSSH does this. No idea why.
+        self.pam
+            .setcred(PamFlag::REINITIALIZE_CRED)
+            .map_err(|e| format!("unable to re-establish PAM credentials: {}", e))?;
+
+        // Prepare some strings in C format that we'll need.
+        let cusername = CString::new(username)?;
+        let command = format!("[ -f /etc/profile ] && source /etc/profile; [ -f $HOME/.profile ] && source $HOME/.profile; exec {}", self.cmd.join(" "));
+
+        // Change working directory
+        let pwd = match env::set_current_dir(home) {
+            Ok(_) => home,
+            Err(_) => {
+                env::set_current_dir("/")
+                    .map_err(|e| format!("unable to set working directory: {}", e))?;
+                "/"
+            }
+        };
+
+        // Check to see if a few necessary variables are there and patch things
+        // up as needed.
+        let mut fixup_env = vec![
+            format!("PWD={}", pwd),
+            format!("GREETD_SOCK={}", env::var("GREETD_SOCK").unwrap()),
+        ];
+        if !self.pam.hasenv("TERM") {
+            fixup_env.push("TERM=linux".to_string());
+        }
+        if !self.pam.hasenv("XDG_RUNTIME_DIR") {
+            fixup_env.push(format!("XDG_RUNTIME_DIR=/run/user/{}", uid));
+        }
+        for e in fixup_env.into_iter() {
+            self.pam
+                .putenv(&e)
+                .map_err(|e| format!("unable to set PAM environment: {}", e))?;
+        }
+
+        // Extract PAM environment for use with execve below.
+        let mut pamenvlist = self
+            .pam
+            .getenvlist()
+            .map_err(|e| format!("unable to get PAM environment: {}", e))?;
+        let envvec = pamenvlist.to_vec();
+
+        // PAM is weird and gets upset if you exec from the process that opened
+        // the session, registering it automatically as a log-out. Thus, we must
+        // exec in a new child.
+        let child = match fork().map_err(|e| format!("unable to fork: {}", e))? {
+            ForkResult::Parent { child, .. } => child,
+            ForkResult::Child => {
+                // It is important that we do *not* return from here by
+                // accidentally using '?'. The process *must* exit from within
+                // this match arm.
+
+                // Drop privileges to target user
+                initgroups(&cusername, gid).expect("unable to init groups");
+                setgid(gid).expect("unable to set GID");
+                setuid(uid).expect("unable to set UID");
+
+                // Run
+                close(childfd).expect("unable to close pipe");
+                let cpath = CString::new("/bin/sh").unwrap();
+                execve(
+                    &cpath,
+                    &[
+                        &cpath,
+                        &CString::new("-c").unwrap(),
+                        &CString::new(command).unwrap(),
+                    ],
+                    &envvec,
+                )
+                .expect("unable to exec");
+
+                unreachable!("after exec");
+            }
+        };
+
+        // Signal the inner PID to the parent process.
+        let mut f = unsafe { File::from_raw_fd(childfd) };
+        f.write_u64::<LittleEndian>(child.as_raw() as u64)?;
+        drop(f);
+
+        // Wait for process to terminate, handling EINTR as necessary.
+        loop {
+            match waitpid(child, None) {
+                Err(nix::Error::Sys(nix::errno::Errno::EINTR)) => continue,
+                Err(e) => eprintln!("session: waitpid on inner child failed: {}", e),
+                Ok(_) => break,
+            }
+        }
+
+        // Close the session. This step requires root privileges to run, as it
+        // will result in various forms of login teardown (including unmounting
+        // home folders, telling logind that the session ended, etc.). This is
+        // why we cannot drop privileges in this process, but must do it in the
+        // inner-most child.
+        self.pam
+            .close_session(PamFlag::NONE)
+            .map_err(|e| format!("unable to close PAM session: {}", e))?;
+        self.pam
+            .setcred(PamFlag::DELETE_CRED)
+            .map_err(|e| format!("unable to clear PAM credentials: {}", e))?;
+        self.pam
+            .end()
+            .map_err(|e| format!("unable to clear PAM credentials: {}", e))?;
+
+        Ok(())
+    }
+
     ///
     /// Start the session described within the Session.
     ///
-    /// The flow is as follows:
-    ///
-    ///  1. Fork a subprocess. The parent will close the PAM handle immediately
-    ///     afterwards and wait to receive the final child PID over a pipe.
-    ///
-    ///  2. Make the child a session leader.
-    ///
-    ///  3. Open the target TTY, which due to us being in a new, empty session
-    ///     makes it our new controlling terminal. Duplicate the TTY fd onto
-    ///     stdin, stdout and stderr to hook us up to it properly. We also send
-    ///     a clear code to the TTY to make it pretty before we switch to it.
-    ///
-    ///  4. Switch VT.
-    ///
-    ///  5. Pass target environment variables to PAM through pam_putenv. The
-    ///     variables include user information like name, home folder and shell
-    ///     choice, target VT, session class and anything requested by the
-    ///     greeter. The TTY is also passed through pam_set_item - who liked
-    ///     unified interfaces anyway?
-    ///
-    ///  6. Create the PAM session using our pre-authenticated PAM handle.
-    ///
-    ///  7. Change working directory to the home folder of our target user.
-    ///
-    ///  8. Read out all environment variables from PAM, and patch up some
-    ///     necessary ones in case they did not end up set by PAM or the
-    ///     greeter.
-    ///
-    ///  9. Fork yet another subprocess. The parent will write the child PID
-    ///     over a pipe to the main greetd process, wait for the child to die
-    ///     and perform cleanup.
-    ///
-    /// 10. In the child, drop privileges and exec the target process.
-    ///
-    /// Notes:
-    ///
-    /// - The double-fork is necessary due to PAM. Empirical testing showed
-    ///   that opening a PAM session in the main process makes PAM think that
-    ///   the main process is going to be the session leader. Thus, PAM must be
-    ///   handled in a forked child. However, calling exec from the process that
-    ///   opened the session immediately terminates it. Thus, exec must be run
-    ///   in yet another forked child.
-    ///
-    /// - Use of the TIOCSCTTY ioctl instead of just opening the TTY to set the
-    ///   controlling terminal did not seem to work. It was also needlessly
-    ///   complicated.
-    ///
-    /// - The TTY must be hooked up to stdin for child applications to start
-    ///   correctly. Not sure why.
-    ///
-    /// - If the controlling terminal is not properly changed, then a DRM
-    ///   session will start on the VT associated with the controlling
-    ///   terminal, rather than the VT we activated.
-    ///
-    /// - pam_systemd.so reads a lot of PAM environment variables, affecting
-    ///   the logind session. For this reason, it's best to just pass
-    ///   everything through.
-    ///
-    /// - pam_close_session requires root privileges, so privilege drop must
-    ///   not happen in the intermediate process.
-    ///
-    /// - When handling TTY/VT, there are many devices to deal with:
-    ///    - /dev/console, the kernel "console" device. This is a virtual
-    ///      device representing the kernel log target, but is also the target
-    ///      for VT ioctls. See `man ioctl_console`.
-    ///    - /dev/tty, the controlling terminal of the current process. See
-    ///      `man iotctl_tty`.
-    ///    - /dev/tty0, the active terminal
-    ///    - /dev/ttyN, a specific terminal.
-    ///
     pub fn start(&mut self) -> Result<SessionChild, Box<dyn Error>> {
         // Pipe used to communicate the true PID of the final child.
-        let (parentfd, childfd) = pipe()
-            .map_err(|e| format!("could not create pipe: {}", e))?;
+        let (parentfd, childfd) = pipe().map_err(|e| format!("could not create pipe: {}", e))?;
 
         // PAM requires for unfathmoable reasons that we run this in a
         // subprocess. Things seem to fail otherwise.
         let child = match fork()? {
             ForkResult::Parent { child, .. } => {
-                close(childfd).expect("unable to close child pipe");
+                close(childfd)?;
                 child
             }
             ForkResult::Child => {
+                // It is important that we do *not* return from here by
+                // accidentally using '?'. The process *must* exit from within
+                // this match arm.
+
+                // Close our side of the pipe.
                 close(parentfd).expect("unable to close parent pipe");
 
-                // Unblock signals blocked in our parent due to our use of
-                // signalfd.
-                blocked_sigset().thread_unblock()
-                    .expect("unable to unblock signals");
+                // Keep our old stderr around for logging, but CLOEXEC so that
+                // we are not poluting the new child.
+                let mut stderr = unsafe { File::from_raw_fd(dup_fd_cloexec(2 as RawFd).unwrap()) };
 
-                // Make this process a session leader.
-                setsid().expect("unable to set session leader");
-
-                // Open the tty to make it our controlling terminal.
-                let res = open(
-                    format!("/dev/tty{}", self.vt).as_str(),
-                    OFlag::O_RDWR,
-                    Mode::empty(),
-                )
-                .expect("unable to open tty");
-
-                // Clear TTY so that it will be empty when we switch to it.
-                let mut tty_file = unsafe { File::from_raw_fd(res) };
-                tty_file.write_all("\x1B[H\x1B[2J".as_bytes())
-                    .expect("unable to clear TTY");
-
-                // Hook up std(in|out|err).
-                dup2(res, 0 as RawFd).unwrap();
-                dup2(res, 1 as RawFd).unwrap();
-                dup2(res, 2 as RawFd).unwrap();
-
-                close(res).unwrap();
-
-                // Switch VT
-                vt::quick_activate(vt).expect("unable to activate vt");
-                vt::set_mode(vt::Mode::Text).expect("unable to set text mode");
-
-                // Tell logind about our VT and TTY choice.
-                self.pam
-                    .putenv(&format!("XDG_VTNR={}", self.vt))
-                    .expect("unable to set vt");
-                self.pam
-                    .set_item(PamItemType::TTY, &format!("/dev/tty{}", self.vt))
-                    .expect("unable to set tty");
-
-                // PAM has to be provided a bunch of environment variables
-                // before open_session. We pass any environment variables from
-                // our greeter through here as well. This allows them to affect
-                // PAM (more specifically, pam_systemd.so), as well as make it
-                // easier to gather and set all environment variables later.
-                for (key, value) in self.env.iter() {
-                    self.pam
-                        .putenv(&format!("{}={}", key, value))
-                        .expect("unable to set environment");
+                // Run the child entrypoint.
+                if let Err(e) = self.session_worker(childfd) {
+                    writeln!(stderr, "session worker: {}", e)
+                        .expect("could not write log output");
+                    std::process::exit(1);
                 }
-
-
-                let username = self.user.name().to_str().unwrap();
-                let home = self.user.home_dir().to_str().unwrap();
-                let shell = self.user.shell().to_str().unwrap();
-
-                let uid = Uid::from_raw(self.user.uid());
-                let gid = Gid::from_raw(self.user.primary_group_id());
-
-                self.pam
-                    .putenv(&format!("XDG_SESSION_CLASS={}", self.class))
-                    .expect("unable to set session class");
-                self.pam
-                    .putenv("XDG_SEAT=seat0")
-                    .expect("unable to set seat");
-                self.pam
-                    .putenv(&format!("USER={}", username))
-                    .expect("unable to set environment");
-                self.pam
-                    .putenv(&format!("LOGNAME={}", username))
-                    .expect("unable to set environment");
-                self.pam
-                    .putenv(&format!("HOME={}", home))
-                    .expect("unable to set environment");
-                self.pam
-                    .putenv(&format!("SHELL={}", shell))
-                    .expect("unable to set environment");
-
-                // Not the credentials you think.
-                self.pam
-                    .setcred(PamFlag::ESTABLISH_CRED)
-                    .expect("unable to establish PAM credentials");
-
-                // Session time!
-                self.pam
-                    .open_session(PamFlag::NONE)
-                    .expect("unable to open PAM session");
-
-                // OpenSSH does this. No idea why.
-                self.pam
-                    .setcred(PamFlag::REINITIALIZE_CRED)
-                    .expect("unable to establish PAM credentials");
-
-                let pamenv = self
-                    .pam
-                    .getenvlist()
-                    .expect("unable to get PAM environment")
-                    .to_vec();
-
-                // Prepare some strings in C format that we'll need.
-                let cusername = CString::new(username).unwrap();
-                let command = format!("[ -f /etc/profile ] && source /etc/profile; [ -f $HOME/.profile ] && source $HOME/.profile; exec {}", self.cmd.join(" "));
-
-                // Change working directory
-                let pwd = match env::set_current_dir(home) {
-                    Ok(_) => home.to_string(),
-                    Err(_) => {
-                        env::set_current_dir("/").expect("unable to set current dir");
-                        "/".to_string()
-                    }
-                };
-
-                // Transfer PAM environment to process, set some final things.
-                env::set_var("PWD", &pwd);
-                for (key, value) in pamenv {
-                    env::set_var(key, value);
-                }
-                if env::var("TERM").is_err() {
-                    env::set_var("TERM", "linux");
-                }
-                if env::var("XDG_RUNTIME_DIR").is_err() {
-                    env::set_var("XDG_RUNTIME_DIR", format!("/run/user/{}", uid));
-                }
-
-                // We need to fork again. PAM is weird and gets upset if you
-                // exec from the process that opened the session, registering
-                // it automatically as a log-out.
-                let child = match fork().expect("unable to fork") {
-                    ForkResult::Parent { child, .. } => child,
-                    ForkResult::Child => {
-                        // Drop privileges to target user
-                        initgroups(&cusername, gid).expect("unable to init groups");
-                        setgid(gid).expect("unable to set GID");
-                        setuid(uid).expect("unable to set UID");
-
-                        // Run
-                        close(childfd).expect("unable to close pipe");
-                        let cpath = CString::new("/bin/sh").unwrap();
-                        execv(&cpath, &[&cpath, &CString::new("-c").unwrap(), &CString::new(command).unwrap()]).expect("unable to exec");
-                        std::process::exit(0);
-                    }
-                };
-
-                // Signal the inner PID to the parent process.
-                let mut f = unsafe { File::from_raw_fd(childfd) };
-                f.write_u64::<LittleEndian>(child.as_raw() as u64)
-                    .expect("unable to write pid");
-                drop(f);
-
-                waitpid(child, None).expect("unable to wait for child");
-
-                let _ = self.pam.close_session(PamFlag::NONE);
-                let _ = self.pam.setcred(PamFlag::DELETE_CRED);
-                let _ = self.pam.end();
                 std::process::exit(0);
             }
         };
 
         // We have no use for the PAM handle in the host process anymore
-        self.pam.setcred(PamFlag::DELETE_CRED).expect("unable to delete PAM credentials");
-        self.pam.end().expect("unable to end PAM session");
+        self.pam.setcred(PamFlag::DELETE_CRED)?;
+        self.pam.end()?;
 
         // Read the true child PID.
         let mut f = unsafe { File::from_raw_fd(parentfd) };
-        let raw_pid = f.read_u64::<LittleEndian>()
-            .map_err(|e| format!("sesssion process failed: {}", e))?;
+        let raw_pid = f
+            .read_u64::<LittleEndian>()
+            .map_err(|_| "worker process terminated".to_string())?;
         let sub_task = Pid::from_raw(raw_pid as pid_t);
         drop(f);
 
         Ok(SessionChild {
+            opened: Instant::now(),
             task: child,
             sub_task,
         })

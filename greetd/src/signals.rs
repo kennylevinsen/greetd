@@ -1,6 +1,5 @@
-use std::error::Error;
 use std::convert::TryFrom;
-
+use std::error::Error;
 use std::os::unix::io::{AsRawFd, RawFd};
 
 use nix::poll::PollFlags;
@@ -45,10 +44,10 @@ impl Pollable for Signals {
     fn run(&mut self, ctx: &mut Context) -> Result<PollRunResult, Box<dyn Error>> {
         loop {
             match self.listener.read_signal() {
-                Ok(Some(sig)) => match Signal::try_from(sig.ssi_signo as i32)? {
-                    Signal::SIGALRM => ctx.alarm()?,
-                    Signal::SIGCHLD => ctx.check_children()?,
-                    Signal::SIGTERM => ctx.terminate()?,
+                Ok(Some(sig)) => match Signal::try_from(sig.ssi_signo as i32) {
+                    Ok(Signal::SIGALRM) => ctx.alarm()?,
+                    Ok(Signal::SIGCHLD) => ctx.check_children()?,
+                    Ok(Signal::SIGTERM) => ctx.terminate()?,
                     _ => (),
                 },
                 Ok(None) => break Ok(PollRunResult::Uneventful),

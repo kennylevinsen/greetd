@@ -1,8 +1,8 @@
-use libc::{c_int, c_void, calloc, free, size_t, strdup};
-use pam_sys::{PamConversation, PamMessage, PamMessageStyle, PamResponse, PamReturnCode};
-
 use std::ffi::CStr;
 use std::mem;
+
+use libc::{c_int, c_void, calloc, free, size_t, strdup};
+use pam_sys::{PamConversation, PamMessage, PamMessageStyle, PamResponse, PamReturnCode};
 
 use crate::pam::Converse;
 
