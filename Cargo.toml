@@ -3,7 +3,6 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
-lto = "fat"
 
 [workspace]
 members = ["greet_proto", "greetd", "greetctl"]
