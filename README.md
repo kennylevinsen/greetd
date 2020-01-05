@@ -1,13 +1,24 @@
 # greetd
 
-Generic display manager. Composed of a daemon which:
+Generic display manager, capable of anything from text-based login to shell (replacing agetty), to graphical login to a Wayland compositor (replacing GDM/lightdm/...).
 
-1. Launches a greeter of your choice.
+## List of known greetd greeters
+
+- agreety - The simple, text-based greeter.
+- gtkgreet - Simple GTK based greeter (to be used with something like `cage`)
+- dlm - Dumb Login Manager (using fbdev)
+- wlgreet - Wayland greeter (stale)
+
+## Overview
+
+greetd is a daemon which:
+
+1. Launches a configured greeter of your choice.
 2. Listens on a socket for a login message.
 3. If the credentials are valid, terminates the greeter (if it didn't do so itself) and starts the requested session application.
 4. When the session application terminates, the greeter is started once again.
 
-All the greeter of choice needs to do is to be able to write a message to a socket. It could be anything from a simple terminal application to a fully-fledged desktop environment in which one of the applications present a user prompt.
+All the greeter of choice needs to do is to be able to write a message to a socket. It could be anything from a simple terminal application to a fully-fledged desktop environment in which one of the applications present a user prompt. Of course, the same goes for the session the user logs into.
 
 The greeter runs as a configured user, which is supposed to be one with no interesting privileges except for what the greeter itself needs to run.
 
@@ -16,7 +27,8 @@ The greeter runs as a configured user, which is supposed to be one with no inter
 ### Binaries
 
 - greetd, the daemon itself
-- greetctl, a sample application to issue the login message.
+- agreety, a simple agetty greeter clone.
+- greetctl, a WIP tool meant to interact with greetd.
 - greet_proto, a protocol library in Rust. Don't worry if you don't use Rust, the protocol is very simple.
 
 ### Configuration files
@@ -43,11 +55,6 @@ The greeter runs as a configured user, which is supposed to be one with no inter
 3. (In the new terminal): greetctl
 4. Answer the questions, and the sway greeter will be replaced by whatever you typed if your login is successful.
 
-## Other greeters
-
-- gtkgreet - Simple GTK based greeter (to be used with something like `cage`)
-- dlm - Dumb Login Manager (using fbdev)
-- wlgreet - Wayland greeter (stale)
 
 # Protocol
 
@@ -75,6 +82,7 @@ Attempts to log the user in. The specofied command will be run with the specifie
 	"username": "user",
 	"password": "password",
 	"command": ["sway"],
+	"vt": "next", /* one of `"next"`, `"current"` or `{"specific": NUM}` */
 	"env": {
 		"XDG_SESSION_TYPE": "wayland",
 		"XDG_SESSION_DESKTOP": "sway",
@@ -102,14 +110,14 @@ Attempts to log the user in. The specofied command will be run with the specifie
 }
 ```
 
-### Exit
+### Shutdown
 
-Runs an exit action, such as powering the machine off.
+Runs an shutdown action, such as powering the machine off.
 
 
 ```
 {
-	"type": "exit",
+	"type": "shutdown",
 	"action": "reboot"
 }
 ```
@@ -131,7 +139,8 @@ Available actions are: `poweroff`, `reboot` and `exit` (terminates greetd).
 ```
 {
 	"type": "failure",
-	"errorType": "exitError",
+	"errorType": "shutdownError",
+	"action": "reboot",
 	"description": "..."
 }
 ```

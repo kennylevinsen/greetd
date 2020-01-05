@@ -5,6 +5,8 @@
 //! The library exposes a `Request` and a `Response` enum, together with a
 //! `Header` type needed to serialize a valid protocol message. Additional
 //! types are part of the different request and response values.
+//!
+//! See `agreety` for a simple example use of this library.
 
 use std::collections::HashMap;
 use std::error::Error;

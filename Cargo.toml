@@ -5,4 +5,4 @@ panic = "abort"
 panic = "abort"
 
 [workspace]
-members = ["greet_proto", "greetd", "greetctl"]
+members = ["greet_proto", "greetd", "greetctl", "agreety"]

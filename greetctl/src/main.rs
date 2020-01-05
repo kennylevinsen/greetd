@@ -24,14 +24,15 @@ fn login() -> Result<(), Box<dyn std::error::Error>> {
         password,
         command: vec![command],
         env: HashMap::new(),
-        vt: VtSelection::Current,
+        vt: VtSelection::Next,
     };
-
-    let mut stream = UnixStream::connect(env::var("GREETD_SOCK")?)?;
 
     // Write request
     let req = request.to_bytes()?;
+
     let header = Header::new(req.len() as u32);
+
+    let mut stream = UnixStream::connect(env::var("GREETD_SOCK")?)?;
     stream.write_all(&header.to_bytes()?)?;
     stream.write_all(&req)?;
 
