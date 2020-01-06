@@ -193,7 +193,7 @@ impl<'a> Session<'a> {
         target_vt.vt_mode_clean()?;
 
         // Perform a switch to the target VT if required.
-        console.vt_quick_activate(vt)?;
+        console.vt_activate(vt)?;
 
         // We no longer need these, so close them to avoid inheritance.
         drop(console);

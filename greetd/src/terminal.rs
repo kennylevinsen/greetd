@@ -104,14 +104,6 @@ impl Terminal {
         Ok(())
     }
 
-    pub fn vt_quick_activate(&self, target_vt: usize) -> Result<(), Box<dyn Error>> {
-        let cur = self.vt_get_current()?;
-        if cur == target_vt {
-            return Ok(());
-        }
-        self.vt_activate(target_vt)
-    }
-
     pub fn set_kdmode(&self, mode: KdMode) -> Result<(), Box<dyn Error>> {
         let mode = mode.to_const();
         let ret = unsafe { vt_kdsetmode(self.fd, mode) };
