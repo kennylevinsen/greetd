@@ -258,11 +258,6 @@ impl<'a> Session<'a> {
             .open_session(PamFlag::NONE)
             .map_err(|e| format!("unable to open PAM session: {}", e))?;
 
-        // OpenSSH does this. No idea why.
-        self.pam
-            .setcred(PamFlag::REINITIALIZE_CRED)
-            .map_err(|e| format!("unable to re-establish PAM credentials: {}", e))?;
-
         // Prepare some strings in C format that we'll need.
         let cusername = CString::new(username)?;
         let command = format!("[ -f /etc/profile ] && source /etc/profile; [ -f $HOME/.profile ] && source $HOME/.profile; exec {}", self.cmd.join(" "));
