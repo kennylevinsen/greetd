@@ -1,8 +1,6 @@
-use std::cell::RefCell;
 use std::error::Error;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::UnixListener;
-use std::rc::Rc;
 
 use nix::fcntl::{fcntl, FcntlArg, FdFlag};
 use nix::poll::PollFlags;
@@ -44,8 +42,8 @@ impl Pollable for Listener {
             Err(_) => return Ok(PollRunResult::Uneventful),
         };
 
-        Ok(PollRunResult::NewPollable(Rc::new(RefCell::new(Box::new(
+        Ok(PollRunResult::NewPollable(Box::new(
             Client::new(stream)?,
-        )))))
+        )))
     }
 }

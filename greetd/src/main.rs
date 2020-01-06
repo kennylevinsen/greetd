@@ -1,7 +1,5 @@
-use std::cell::RefCell;
 use std::env;
 use std::fs::remove_file;
-use std::rc::Rc;
 
 use nix::poll::{poll, PollFd};
 use nix::unistd::chown;
@@ -46,17 +44,17 @@ fn main() {
         std::process::exit(1);
     }
 
-    let mut pollables: Vec<Rc<RefCell<Box<dyn pollable::Pollable>>>> = vec![
-        Rc::new(RefCell::new(Box::new(listener))),
-        Rc::new(RefCell::new(Box::new(signals))),
+    let mut pollables: Vec<Box<dyn pollable::Pollable>> = vec![
+        Box::new(listener),
+        Box::new(signals),
     ];
 
     let mut fds: Vec<PollFd> = pollables
         .iter()
-        .map(|x| PollFd::new(x.borrow().fd(), x.borrow().poll_flags()))
+        .map(|x| PollFd::new(x.fd(), x.poll_flags()))
         .collect();
 
-    let mut new_pollables: Vec<Rc<RefCell<Box<dyn pollable::Pollable>>>> = Vec::new();
+    let mut new_pollables: Vec<Box<dyn pollable::Pollable>> = Vec::new();
     let mut dead_pollables: Vec<usize> = Vec::new();
 
     loop {
@@ -64,9 +62,9 @@ fn main() {
 
         for (idx, fd) in fds.iter().enumerate() {
             if let Some(revents) = fd.revents() {
-                let pollable = &pollables[idx];
-                if revents.intersects(pollable.borrow().poll_flags()) {
-                    match pollable.borrow_mut().run(&mut ctx) {
+                let pollable = &mut pollables[idx];
+                if revents.intersects(pollable.poll_flags()) {
+                    match pollable.run(&mut ctx) {
                         Ok(pollable::PollRunResult::Uneventful) => (),
                         Ok(pollable::PollRunResult::NewPollable(p)) => new_pollables.push(p),
                         Ok(pollable::PollRunResult::Dead) => dead_pollables.push(idx),
@@ -101,7 +99,7 @@ fn main() {
         if fds_changed {
             fds = pollables
                 .iter()
-                .map(|x| PollFd::new(x.borrow().fd(), x.borrow().poll_flags()))
+                .map(|x| PollFd::new(x.fd(), x.poll_flags()))
                 .collect();
         }
     }

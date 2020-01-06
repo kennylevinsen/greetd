@@ -1,7 +1,5 @@
-use std::cell::RefCell;
 use std::error::Error;
 use std::os::unix::io::RawFd;
-use std::rc::Rc;
 
 use nix::poll::PollFlags;
 
@@ -10,7 +8,7 @@ use crate::context::Context;
 pub enum PollRunResult {
     Uneventful,
     Dead,
-    NewPollable(Rc<RefCell<Box<dyn Pollable>>>),
+    NewPollable(Box<dyn Pollable>),
 }
 
 pub trait Pollable {
