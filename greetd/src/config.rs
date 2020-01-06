@@ -4,8 +4,10 @@ use std::fs::read_to_string;
 use clap::{crate_authors, crate_version, App, Arg};
 use serde::Deserialize;
 
-fn default_vt() -> usize {
-    1
+use greet_proto::VtSelection;
+
+fn default_vt() -> toml::Value {
+    toml::Value::String("next".to_string())
 }
 
 fn default_socket_path() -> String {
@@ -15,12 +17,27 @@ fn default_socket_path() -> String {
 #[derive(Debug, Deserialize)]
 pub struct Config {
     #[serde(default = "default_vt")]
-    pub vt: usize,
+    pub vt: toml::Value,
     pub greeter: String,
     pub greeter_user: String,
 
     #[serde(default = "default_socket_path")]
     pub socket_path: String,
+}
+
+impl Config {
+    pub fn vt(&self) -> VtSelection {
+        match &self.vt {
+            toml::Value::String(s) => match s.as_str() {
+                "next" => VtSelection::Next,
+                "current" => VtSelection::Current,
+                _ => panic!("unknown value of vt, expect next, current, or vt number"),
+
+            }
+            toml::Value::Integer(u) => VtSelection::Specific(*u as usize),
+            _ => panic!("unknown value of vt, expect next, current, or vt number"),
+        }
+    }
 }
 
 pub fn read_config() -> Config {
@@ -87,7 +104,11 @@ pub fn read_config() -> Config {
     };
 
     if let Some(vt) = matches.value_of("vt") {
-        config.vt = vt.parse().expect("vt parameter must be a positive integer");
+        config.vt = match vt {
+            "next" => toml::Value::String("next".to_string()),
+            "current" => toml::Value::String("current".to_string()),
+            v => toml::Value::Integer(v.parse().expect("could not parse vt number")),
+        }
     }
     if let Some(greeter) = matches.value_of("greeter") {
         config.greeter = greeter.to_string();

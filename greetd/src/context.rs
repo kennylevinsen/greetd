@@ -19,11 +19,11 @@ pub struct Context<'a> {
 
     greeter_bin: String,
     greeter_user: String,
-    vt: usize,
+    vt: VtSelection,
 }
 
 impl<'a> Context<'a> {
-    pub fn new(greeter_bin: String, greeter_user: String, vt: usize) -> Context<'a> {
+    pub fn new(greeter_bin: String, greeter_user: String, vt: VtSelection) -> Context<'a> {
         Context {
             session: None,
             greeter: None,
@@ -48,7 +48,7 @@ impl<'a> Context<'a> {
             "",
             vec![self.greeter_bin.to_string()],
             HashMap::new(),
-            VtSelection::Specific(self.vt),
+            self.vt,
         )?;
         let greeter = match pending_session.start() {
             Ok(s) => s,

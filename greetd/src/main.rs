@@ -38,7 +38,8 @@ fn main() {
 
     let signals = signals::Signals::new().expect("unable to create signalfd");
 
-    let mut ctx = context::Context::new(config.greeter, config.greeter_user, config.vt);
+    let vt = config.vt();
+    let mut ctx = context::Context::new(config.greeter, config.greeter_user, vt);
     if let Err(e) = ctx.greet() {
         eprintln!("unable to start greeter: {}", e);
         std::process::exit(1);
