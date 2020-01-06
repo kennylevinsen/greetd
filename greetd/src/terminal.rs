@@ -1,42 +1,29 @@
 use std::error::Error;
 use std::fs::File;
 use std::io::Write;
-use std::mem;
 use std::os::unix::io::{FromRawFd, RawFd};
 
 use nix::fcntl::{open, OFlag};
-use nix::sys::signal;
 use nix::sys::stat::Mode as StatMode;
-use nix::unistd::{close, dup2};
+use nix::unistd::dup2;
 use nix::{ioctl_read_bad, ioctl_write_int_bad, ioctl_write_ptr_bad};
 
-const RELEASE_DISPLAY_SIGNAL: u32 = 64;
-const ACQUIRE_DISPLAY_SIGNAL: u32 = 63;
-
 const KDSETMODE: u16 = 0x4B3A;
-const KDGETMODE: u16 = 0x4B3B;
 const KDTEXT: i32 = 0x00;
 const KDGRAPHICS: i32 = 0x01;
 const VT_OPENQRY: u16 = 0x5600;
-const VT_GETMODE: u16 = 0x5601;
 const VT_SETMODE: u16 = 0x5602;
 const VT_GETSTATE: u16 = 0x5603;
-const VT_RELDISP: u16 = 0x5605;
 const VT_ACTIVATE: u16 = 0x5606;
 const VT_WAITACTIVE: u16 = 0x5607;
 const VT_AUTO: u8 = 0;
-const VT_PROCESS: u8 = 1;
-const VT_ACKACQ: u8 = 2;
 
 ioctl_write_int_bad!(vt_kdsetmode, KDSETMODE);
 ioctl_write_int_bad!(vt_activate, VT_ACTIVATE);
 ioctl_write_int_bad!(vt_waitactive, VT_WAITACTIVE);
 ioctl_write_ptr_bad!(vt_setmode, VT_SETMODE, vt_mode);
-ioctl_read_bad!(vt_kdgetmode, KDGETMODE, i32);
 ioctl_read_bad!(vt_openqry, VT_OPENQRY, i64);
-ioctl_read_bad!(vt_getmode, VT_GETMODE, vt_mode);
 ioctl_read_bad!(vt_getstate, VT_GETSTATE, vt_state);
-ioctl_write_int_bad!(vt_reldisp, VT_RELDISP);
 
 #[allow(dead_code)]
 #[repr(C)]
@@ -71,33 +58,11 @@ impl KdMode {
     }
 }
 
-fn release_display(ack: bool) -> Result<(), Box<dyn Error>> {
-    let fd = open("/dev/tty0", OFlag::O_RDWR, StatMode::empty())?;
-    let arg = if ack { VT_ACKACQ as i32 } else { 1 };
-    let res = unsafe { vt_reldisp(fd, arg) };
-    close(fd)?;
-
-    if let Err(v) = res {
-        Err(v.into())
-    } else {
-        Ok(())
-    }
-}
-
-extern "C" fn on_release_display(_: i32) {
-    let _ = release_display(false);
-}
-
-extern "C" fn on_acquire_display(_: i32) {
-    let _ = release_display(true);
-}
-
 pub fn restore(terminal: usize) -> Result<(), Box<dyn Error>> {
     let tty_0 = Terminal::open(0)?;
     let tty_x = Terminal::open(terminal)?;
-    tty_0.vt_fix_switching()?;
     tty_x.set_kdmode(KdMode::Text)?;
-    tty_x.vt_process_switch_control(false)?;
+    tty_x.vt_mode_clean()?;
     tty_0.vt_activate(terminal)?;
     Ok(())
 }
@@ -158,63 +123,7 @@ impl Terminal {
         }
     }
 
-    pub fn vt_fix_switching(&self) -> Result<(), Box<dyn Error>> {
-        let mut mode = vt_mode {
-            mode: 0,
-            waitv: 0,
-            relsig: 0,
-            acqsig: 0,
-            frsig: 0,
-        };
-        let res = unsafe { vt_getmode(self.fd, &mut mode) };
-
-        if let Err(v) = res {
-            return Err(format!("terminal: unable to get vt mode: {}", v).into());
-        } else if mode.mode != VT_AUTO {
-            return Ok(());
-        }
-
-        let mut mode: i32 = 0;
-        let res = unsafe { vt_kdgetmode(self.fd, &mut mode) };
-
-        if let Err(v) = res {
-            return Err(format!("terminal: unable to get kernel display mode: {}", v).into());
-        } else if mode != KDGRAPHICS {
-            return Ok(());
-        }
-
-        self.vt_process_switch_control(true)
-    }
-
-    fn vt_process_switch_control_enable(&self) -> Result<(), Box<dyn Error>> {
-        let mode = vt_mode {
-            mode: VT_PROCESS,
-            waitv: 0,
-            relsig: RELEASE_DISPLAY_SIGNAL as u16,
-            acqsig: ACQUIRE_DISPLAY_SIGNAL as u16,
-            frsig: 0,
-        };
-        let res = unsafe { vt_setmode(self.fd, &mode) };
-
-        if let Err(v) = res {
-            return Err(format!("terminal: unable to set vt mode: {}, {}", v, nix::errno::errno()).into())
-        }
-
-        // VT_PROCESS requiests permission to perform VT switching by sending
-        // us signals, so we need to make sure that we have signal handlers set
-        // up first. We just overwrite them every time this is done.
-        let rel_signal = unsafe { mem::transmute(RELEASE_DISPLAY_SIGNAL) };
-        let ack_signal = unsafe { mem::transmute(ACQUIRE_DISPLAY_SIGNAL) };
-
-        unsafe { signal::signal(rel_signal, signal::SigHandler::Handler(on_release_display)) }
-            .map_err(|e| format!("terminal: unable to set display release handler: {}", e))?;
-        unsafe { signal::signal(ack_signal, signal::SigHandler::Handler(on_acquire_display)) }
-            .map_err(|e| format!("terminal: unable to set display acquire handler: {}", e))?;
-
-        Ok(())
-    }
-
-    fn vt_process_switch_control_disable(&self) -> Result<(), Box<dyn Error>> {
+    pub fn vt_mode_clean(&self) -> Result<(), Box<dyn Error>> {
         let mode = vt_mode {
             mode: VT_AUTO,
             waitv: 0,
@@ -228,14 +137,6 @@ impl Terminal {
             Err(format!("terminal: unable to set vt mode: {}", v).into())
         } else {
             Ok(())
-        }
-    }
-
-    pub fn vt_process_switch_control(&self, enable: bool) -> Result<(), Box<dyn Error>> {
-        if enable {
-            self.vt_process_switch_control_enable()
-        } else {
-            self.vt_process_switch_control_disable()
         }
     }
 

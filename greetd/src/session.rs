@@ -184,23 +184,13 @@ impl<'a> Session<'a> {
         // Clear TTY so that it will be empty when we switch to it.
         target_vt.term_clear()?;
 
-        // Ensure that the current VT is switchable. This fix is probably not
-        // need 99% of the time, but it is nice to be sure that the VT cannot be
-        // left in an unresponsive mode.
-        console.vt_fix_switching()?;
-
         // Set the target VT mode to text for compatibility. Other login
         // managers set this to graphics, but that disallows start of textual
         // applications, which greetd aims to support.
         target_vt.set_kdmode(terminal::KdMode::Text)?;
 
-        // Take control of VT switching, which is required for some reason when
-        // you switch to a TTY that has not been allocated already. VT_OPENQRY,
-        // which is used by Terminal::vt_get_next, always returns unallocated
-        // VTs. This step would not be necessary if we only targetted VTs that
-        // had already been allocated by, say, systemd's autovt, which is what
-        // normally sets up VTs for getty console logins.
-        target_vt.vt_process_switch_control(true)?;
+        // Set VT mode to VT_AUTO.
+        target_vt.vt_mode_clean()?;
 
         // Perform a switch to the target VT if required.
         console.vt_quick_activate(vt)?;
