@@ -67,19 +67,26 @@ fn main() {
             std::process::exit(1);
         }
 
+
+        let mut idx_compensation: isize = 0;
         for (idx, fd) in fds.iter().enumerate() {
             if let Some(revents) = fd.revents() {
-                let pollable = &mut pollables[idx];
+                let pollable = &mut pollables[(idx as isize + idx_compensation) as usize];
                 if revents.intersects(pollable.poll_flags()) {
                     match pollable.run(&mut ctx) {
                         Ok(pollable::PollRunResult::Uneventful) => (),
                         Ok(pollable::PollRunResult::NewPollable(p)) => {
-                            fds_changed = true;
+                            // New pollables are pushed at the end, so they do
+                            // not require index compensation.
                             pollables.push(p);
+                            fds_changed = true;
                         },
                         Ok(pollable::PollRunResult::Dead) => {
-                            fds_changed = true;
+                            // We remove a pollable at the current index, so
+                            // compensate the index of future accesses.
+                            idx_compensation -= 1;
                             pollables.remove(idx);
+                            fds_changed = true;
                         },
                         Err(e) => {
                             eprintln!("task failed: {}", e);
