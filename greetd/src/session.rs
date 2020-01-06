@@ -173,13 +173,7 @@ impl<'a> Session<'a> {
         // code.
         let mut target_vt = terminal::Terminal::open(vt)?;
 
-        eprintln!("session worker: selecting vt {}", target_vt.terminal());
-
-        // Hook up std(in|out|err). This allows us to run console applications.
-        // Also, hooking up stdin is required, as applications otherwise fail to
-        // start, both for graphical and console-based applications. I do not
-        // know why this is the case.
-        target_vt.term_connect_pipes()?;
+        eprintln!("session worker: switching to VT {}", target_vt.terminal());
 
         // Clear TTY so that it will be empty when we switch to it.
         target_vt.term_clear()?;
@@ -194,6 +188,14 @@ impl<'a> Session<'a> {
 
         // Perform a switch to the target VT if required.
         console.vt_activate(vt)?;
+
+        eprintln!("session worker: VT switch complete");
+
+        // Hook up std(in|out|err). This allows us to run console applications.
+        // Also, hooking up stdin is required, as applications otherwise fail to
+        // start, both for graphical and console-based applications. I do not
+        // know why this is the case.
+        target_vt.term_connect_pipes()?;
 
         // We no longer need these, so close them to avoid inheritance.
         drop(console);
