@@ -237,7 +237,7 @@ impl<'a> Session<'a> {
             .map(|(key, value)| format!("{}={}", key, value))
             .collect();
 
-        for e in prepared_env.into_iter().chain(greeter_env.iter()) {
+        for e in prepared_env.iter().chain(greeter_env.iter()) {
             self.pam
                 .putenv(e)
                 .map_err(|e| format!("unable to set PAM environment: {}", e))?;
