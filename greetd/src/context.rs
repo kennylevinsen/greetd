@@ -22,6 +22,26 @@ pub struct Context<'a> {
     vt: VtSelection,
 }
 
+fn run(cmd: &str) -> Result<(), Box<dyn Error>> {
+    match fork()? {
+        ForkResult::Child => {
+            let cpath = CString::new("/bin/sh").unwrap();
+            execv(
+                &cpath,
+                &[
+                    &cpath,
+                    &CString::new("-c").unwrap(),
+                    &CString::new(cmd).unwrap(),
+                ],
+            )
+            .expect("unable to exec");
+            unreachable!("after exec");
+        }
+        _ => (),
+    }
+    Ok(())
+}
+
 impl<'a> Context<'a> {
     pub fn new(greeter_bin: String, greeter_user: String, vt: VtSelection) -> Context<'a> {
         Context {
@@ -104,23 +124,7 @@ impl<'a> Context<'a> {
             }
         };
 
-        match fork()? {
-            ForkResult::Child => {
-                let cpath = CString::new("/bin/sh").unwrap();
-                execv(
-                    &cpath,
-                    &[
-                        &cpath,
-                        &CString::new("-c").unwrap(),
-                        &CString::new(cmd).unwrap(),
-                    ],
-                )
-                .expect("unable to exec");
-                std::process::exit(0);
-            }
-            _ => (),
-        }
-        Ok(())
+        run(cmd)
     }
 
     /// Notify the Context of an alarm.
