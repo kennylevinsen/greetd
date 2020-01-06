@@ -110,15 +110,14 @@ fn main() {
         }
     };
 
+    let vntr: usize = env::var("XDG_VTNR").unwrap_or("0".to_string()).parse().expect("unable to parse VTNR");
     let (vt_text, target_vt) = match matches.value_of("vt") {
-        None => ("next VT".to_string(), VtSelection::Next),
-        Some("next") => ("next VT".to_string(), VtSelection::Next),
-        Some("current") => (
-            env::var("XDG_VTNR").map(|vt| format!("tty{}", vt)).unwrap_or("unknown".to_string()),
-            VtSelection::Current,
-        ),
+        None => (format!("tty{}; next VT", vntr), VtSelection::Next),
+        Some("next") => (format!("tty{}; next VT", vntr), VtSelection::Next),
+        Some("current") => (format!("tty{}", vntr), VtSelection::Current),
         Some(n) => match n.parse() {
-           Ok(v) => (format!("tty{}", v), VtSelection::Specific(v)),
+            Ok(v) if v == vntr => (format!("tty{}", v), VtSelection::Specific(v)),
+            Ok(v) => (format!("tty{}; tty{}", vntr, v), VtSelection::Specific(v)),
             Err(e) => {
                 eprintln!("unable to parse VT number: {}", e);
                 std::process::exit(1)
@@ -129,7 +128,7 @@ fn main() {
     let uts = uname();
     println!("{} {} ({})",
         get_distro_name(),
-        uts.release(), 
+        uts.release(),
         vt_text);
 
     println!("");
