@@ -138,8 +138,7 @@ fn main() {
             Ok(()) => {
                 break;
             }
-            Err(err) => {
-                eprintln!("authentication error: {}", err);
+            Err(_) => {
                 eprintln!("");
             }
         }
