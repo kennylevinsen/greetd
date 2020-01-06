@@ -49,16 +49,23 @@ fn main() {
         Box::new(signals),
     ];
 
-    let mut fds: Vec<PollFd> = pollables
-        .iter()
-        .map(|x| PollFd::new(x.fd(), x.poll_flags()))
-        .collect();
-
-    let mut new_pollables: Vec<Box<dyn pollable::Pollable>> = Vec::new();
-    let mut dead_pollables: Vec<usize> = Vec::new();
+    let mut fds: Vec<PollFd> = Vec::new();
+    let mut fds_changed = true;
 
     loop {
-        poll(&mut fds, -1).expect("poll failed");
+        if fds_changed {
+            fds_changed = false;
+            fds = pollables
+                .iter()
+                .map(|x| PollFd::new(x.fd(), x.poll_flags()))
+                .collect();
+        }
+
+        if let Err(e) = poll(&mut fds, -1) {
+            eprintln!("poll failed: {}", e);
+            terminal::restore(start_vt).expect("unable to reset vt");
+            std::process::exit(1);
+        }
 
         for (idx, fd) in fds.iter().enumerate() {
             if let Some(revents) = fd.revents() {
@@ -66,41 +73,22 @@ fn main() {
                 if revents.intersects(pollable.poll_flags()) {
                     match pollable.run(&mut ctx) {
                         Ok(pollable::PollRunResult::Uneventful) => (),
-                        Ok(pollable::PollRunResult::NewPollable(p)) => new_pollables.push(p),
-                        Ok(pollable::PollRunResult::Dead) => dead_pollables.push(idx),
+                        Ok(pollable::PollRunResult::NewPollable(p)) => {
+                            fds_changed = true;
+                            pollables.push(p);
+                        },
+                        Ok(pollable::PollRunResult::Dead) => {
+                            fds_changed = true;
+                            pollables.remove(idx);
+                        },
                         Err(e) => {
                             eprintln!("task failed: {}", e);
                             terminal::restore(start_vt).expect("unable to reset vt");
-                            std::process::exit(0);
+                            std::process::exit(1);
                         }
                     }
                 }
             }
-        }
-
-        let fds_changed = dead_pollables.len() > 0 || new_pollables.len() > 0;
-
-        if dead_pollables.len() > 0 {
-            let mut removed = 0;
-            for dead in dead_pollables.into_iter() {
-                pollables.remove(dead - removed);
-                removed += 1;
-            }
-            dead_pollables = Vec::new();
-        }
-
-        if new_pollables.len() > 0 {
-            for pollable in new_pollables.into_iter() {
-                pollables.push(pollable);
-            }
-            new_pollables = Vec::new();
-        }
-
-        if fds_changed {
-            fds = pollables
-                .iter()
-                .map(|x| PollFd::new(x.fd(), x.poll_flags()))
-                .collect();
         }
     }
 }
