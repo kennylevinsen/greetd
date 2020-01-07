@@ -11,6 +11,10 @@ pub enum PollRunResult {
     NewPollable(Box<dyn Pollable>),
 }
 
+/// A Pollable is an event loop entry that will be scheduled when its fd has
+/// activity matching what was subscribed for. It can optionally remove itself
+/// or add another pollable to the event loop (such as in the case of pollables
+/// that call accept()).
 pub trait Pollable {
     fn fd(&self) -> RawFd;
     fn poll_flags(&self) -> PollFlags;

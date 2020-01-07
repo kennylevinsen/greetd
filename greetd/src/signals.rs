@@ -9,6 +9,9 @@ use nix::sys::signalfd::{SfdFlags, SignalFd};
 use crate::context::Context;
 use crate::pollable::{PollRunResult, Pollable};
 
+/// Returns a set containing the signals we want to block in the main process.
+/// This is also used to unblock the same signals again before starting child
+/// processes.
 pub fn blocked_sigset() -> SigSet {
     let mut mask = SigSet::empty();
     mask.add(Signal::SIGALRM);
@@ -17,6 +20,8 @@ pub fn blocked_sigset() -> SigSet {
     mask
 }
 
+/// A pollable that listens for SIGALRM, SIGTERM and SIGCHLD and reports it to
+/// the execution context.
 pub struct Signals {
     listener: SignalFd,
 }

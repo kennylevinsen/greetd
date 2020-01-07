@@ -109,7 +109,8 @@ impl<'a> Context<'a> {
         self.pending_session = Some(pending_session);
 
         // We give the greeter 5 seconds to prove itself well-behaved before
-        // we lose patience and shoot it in the back repeatedly.
+        // we lose patience and shoot it in the back repeatedly. This is all
+        // handled by our alarm handler.
         alarm::set(5);
 
         Ok(())

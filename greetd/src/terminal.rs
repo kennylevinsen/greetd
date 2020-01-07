@@ -65,6 +65,7 @@ impl KdMode {
     }
 }
 
+/// Attempt to return the user to the specified VT in a sensible state.
 pub fn restore(terminal: usize) -> Result<(), Box<dyn Error>> {
     let tty_0 = Terminal::open(0)?;
     let tty_x = Terminal::open(terminal)?;
@@ -79,6 +80,7 @@ pub struct Terminal {
 }
 
 impl Terminal {
+    /// Open the terminal file for the specified terminal number.
     pub fn open(terminal: usize) -> Result<Terminal, Box<dyn Error>> {
         let res = OpenOptions::new()
             .read(true)
@@ -91,6 +93,9 @@ impl Terminal {
         }
     }
 
+    /// Set the kernel display to either graphics or text mode. Graphivs mode
+    /// disables the kernel console on this VT, and also disables blanking
+    /// between VT switches if both source and target VT is in graphics mode.
     pub fn kd_setmode(&self, mode: KdMode) -> Result<(), Box<dyn Error>> {
         let mode = mode.to_const();
         let ret = unsafe { kd_setmode(self.file.as_raw_fd(), mode) };
@@ -102,6 +107,7 @@ impl Terminal {
         }
     }
 
+    /// Switches to the specified VT and waits for completion of switch.
     fn vt_activate(&self, target_vt: usize) -> Result<(), Box<dyn Error>> {
         if let Err(v) = unsafe { vt_activate(self.file.as_raw_fd(), target_vt as i32) } {
             return Err(format!("terminal: unable to activate: {}", v).into());
@@ -112,6 +118,7 @@ impl Terminal {
         Ok(())
     }
 
+    /// Set the VT mode to VT_AUTO with everything cleared.
     fn vt_mode_clean(&self) -> Result<(), Box<dyn Error>> {
         let mode = vt_mode {
             mode: VT_AUTO,
@@ -129,6 +136,11 @@ impl Terminal {
         }
     }
 
+    /// Set a VT mode, switch to the VT and wait for its activation. On Linux,
+    /// this will use VT_SETACTIVATE, which will both set the mode and switch
+    /// to the VT under the kernel console lock. On other platforms,
+    /// VT_SETMODE followed by VT_ACTIVATE is used. For all platforms,
+    /// VT_WAITACTIVE is used to wait for shell activation.
     pub fn vt_setactivate(&self, target_vt: usize) -> Result<(), Box<dyn Error>> {
         if cfg!(target_os = "linux") {
             let arg = vt_setactivate {
@@ -154,6 +166,7 @@ impl Terminal {
         Ok(())
     }
 
+    /// Retrieves the current VT number.
     pub fn vt_get_current(&self) -> Result<usize, Box<dyn Error>> {
         let mut state = vt_state {
             v_active: 0,
@@ -171,6 +184,9 @@ impl Terminal {
         }
     }
 
+    /// Find the next unallocated VT, allocate it and return the number. Note
+    /// that allocation does not mean exclusivity, and another process may take
+    /// and use the VT before you get to it.
     pub fn vt_get_next(&self) -> Result<usize, Box<dyn Error>> {
         let mut next_vt: i64 = 0;
         let res = unsafe { vt_openqry(self.file.as_raw_fd(), &mut next_vt as *mut i64) };
@@ -184,6 +200,8 @@ impl Terminal {
         }
     }
 
+    /// Hook up stdin, stdout and stderr of the current process ot this
+    /// terminal.
     pub fn term_connect_pipes(&self) -> Result<(), Box<dyn Error>> {
         let res = dup2(self.file.as_raw_fd(), 0 as RawFd)
             .and_then(|_| dup2(self.file.as_raw_fd(), 1 as RawFd))
@@ -196,6 +214,8 @@ impl Terminal {
         }
     }
 
+    /// Clear this terminal by sending the appropciate escape codes to it. Only
+    /// affects text mode.
     pub fn term_clear(&mut self) -> Result<(), Box<dyn Error>> {
         let res = self.file.write_all("\x1B[H\x1B[2J".as_bytes());
         if let Err(v) = res {
