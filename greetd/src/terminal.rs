@@ -1,10 +1,8 @@
 use std::error::Error;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::Write;
-use std::os::unix::io::{FromRawFd, RawFd};
+use std::os::unix::io::{AsRawFd, RawFd};
 
-use nix::fcntl::{open, OFlag};
-use nix::sys::stat::Mode as StatMode;
 use nix::unistd::dup2;
 use nix::{ioctl_read_bad, ioctl_write_int_bad, ioctl_write_ptr_bad};
 
@@ -78,27 +76,24 @@ pub fn restore(terminal: usize) -> Result<(), Box<dyn Error>> {
 pub struct Terminal {
     // Note: This will close our fd when we're dropped.
     file: File,
-    fd: RawFd,
 }
 
 impl Terminal {
     pub fn open(terminal: usize) -> Result<Terminal, Box<dyn Error>> {
-        match open(
-            format!("/dev/tty{}", terminal).as_str(),
-            OFlag::O_RDWR,
-            StatMode::empty(),
-        ) {
-            Ok(fd) => Ok(Terminal {
-                file: unsafe { File::from_raw_fd(fd) },
-                fd,
-            }),
+        let res = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(format!("/dev/tty{}", terminal));
+
+        match res {
+            Ok(file) => Ok(Terminal { file }),
             Err(e) => Err(format!("terminal: unable to open: {}", e).into()),
         }
     }
 
     pub fn kd_setmode(&self, mode: KdMode) -> Result<(), Box<dyn Error>> {
         let mode = mode.to_const();
-        let ret = unsafe { kd_setmode(self.fd, mode) };
+        let ret = unsafe { kd_setmode(self.file.as_raw_fd(), mode) };
 
         if let Err(v) = ret {
             Err(format!("terminal: unable to set kernel display mode: {}", v).into())
@@ -108,10 +103,10 @@ impl Terminal {
     }
 
     fn vt_activate(&self, target_vt: usize) -> Result<(), Box<dyn Error>> {
-        if let Err(v) = unsafe { vt_activate(self.fd, target_vt as i32) } {
+        if let Err(v) = unsafe { vt_activate(self.file.as_raw_fd(), target_vt as i32) } {
             return Err(format!("terminal: unable to activate: {}", v).into());
         }
-        if let Err(v) = unsafe { vt_waitactive(self.fd, target_vt as i32) } {
+        if let Err(v) = unsafe { vt_waitactive(self.file.as_raw_fd(), target_vt as i32) } {
             return Err(format!("terminal: unable to wait for activation: {}", v).into());
         }
         Ok(())
@@ -125,7 +120,7 @@ impl Terminal {
             acqsig: 0,
             frsig: 0,
         };
-        let res = unsafe { vt_setmode(self.fd, &mode) };
+        let res = unsafe { vt_setmode(self.file.as_raw_fd(), &mode) };
 
         if let Err(v) = res {
             Err(format!("terminal: unable to set vt mode: {}", v).into())
@@ -138,7 +133,7 @@ impl Terminal {
         if cfg!(target_os = "linux") {
             let arg = vt_setactivate {
                 console: target_vt as u64,
-                mode: vt_mode{
+                mode: vt_mode {
                     mode: VT_AUTO,
                     waitv: 0,
                     relsig: 0,
@@ -146,10 +141,10 @@ impl Terminal {
                     frsig: 0,
                 },
             };
-            if let Err(v) = unsafe { vt_setactivate(self.fd, &arg) } {
+            if let Err(v) = unsafe { vt_setactivate(self.file.as_raw_fd(), &arg) } {
                 return Err(format!("terminal: unable to setactivate: {}", v).into());
             }
-            if let Err(v) = unsafe { vt_waitactive(self.fd, target_vt as i32) } {
+            if let Err(v) = unsafe { vt_waitactive(self.file.as_raw_fd(), target_vt as i32) } {
                 return Err(format!("terminal: unable to wait for activation: {}", v).into());
             }
         } else {
@@ -165,7 +160,7 @@ impl Terminal {
             v_signal: 0,
             v_state: 0,
         };
-        let res = unsafe { vt_getstate(self.fd, &mut state as *mut vt_state) };
+        let res = unsafe { vt_getstate(self.file.as_raw_fd(), &mut state as *mut vt_state) };
 
         if let Err(v) = res {
             Err(format!("terminal: unable to get current vt: {}", v).into())
@@ -178,7 +173,7 @@ impl Terminal {
 
     pub fn vt_get_next(&self) -> Result<usize, Box<dyn Error>> {
         let mut next_vt: i64 = 0;
-        let res = unsafe { vt_openqry(self.fd, &mut next_vt as *mut i64) };
+        let res = unsafe { vt_openqry(self.file.as_raw_fd(), &mut next_vt as *mut i64) };
 
         if let Err(v) = res {
             Err(format!("terminal: unable to get next vt: {}", v).into())
@@ -190,9 +185,9 @@ impl Terminal {
     }
 
     pub fn term_connect_pipes(&self) -> Result<(), Box<dyn Error>> {
-        let res = dup2(self.fd, 0 as RawFd)
-            .and_then(|_| dup2(self.fd, 1 as RawFd))
-            .and_then(|_| dup2(self.fd, 2 as RawFd));
+        let res = dup2(self.file.as_raw_fd(), 0 as RawFd)
+            .and_then(|_| dup2(self.file.as_raw_fd(), 1 as RawFd))
+            .and_then(|_| dup2(self.file.as_raw_fd(), 2 as RawFd));
 
         if let Err(v) = res {
             Err(format!("terminal: unable to connect pipes: {}", v).into())
