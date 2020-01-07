@@ -85,13 +85,6 @@ fn main() {
                 .help("command to run"),
         )
         .arg(
-            Arg::with_name("vt")
-                .short("v")
-                .long("vt")
-                .takes_value(true)
-                .help("vt to target"),
-        )
-        .arg(
             Arg::with_name("max-failures")
                 .short("f")
                 .long("max-failures")
