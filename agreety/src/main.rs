@@ -1,6 +1,7 @@
 use std::env;
 use std::io::{self, BufRead, Read, Write};
 use std::os::unix::net::UnixStream;
+use std::fs;
 
 use clap::{crate_authors, crate_version, App, Arg};
 use ini::Ini;
@@ -14,6 +15,37 @@ fn prompt_stderr(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     let mut stdin_iter = stdin.lock().lines();
     eprint!("{}", prompt);
     Ok(stdin_iter.next().unwrap()?)
+}
+
+fn get_distro_name() -> String {
+    Ini::load_from_file("/etc/os-release")
+        .ok()
+        .and_then(|file| {
+            let section = file.general_section();
+            Some(
+                section
+                    .get("PRETTY_NAME")
+                    .unwrap_or(&"Linux".to_string())
+                    .to_string(),
+            )
+        })
+        .unwrap_or("Linux".to_string())
+}
+
+fn get_issue() -> Result<String, Box<dyn std::error::Error>> {
+    let vtnr: usize = env::var("XDG_VTNR")
+        .unwrap_or("0".to_string())
+        .parse()
+        .expect("unable to parse VTNR");
+    let uts = uname();
+    Ok(fs::read_to_string("/etc/issue")?
+        .replace("\\S", &get_distro_name())
+        .replace("\\l", &format!("tty{}", vtnr))
+        .replace("\\s", &uts.sysname())
+        .replace("\\r", &uts.release())
+        .replace("\\v", &uts.version())
+        .replace("\\n", &uts.nodename())
+        .replace("\\m", &uts.machine()))
 }
 
 fn login(node: &str, cmd: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
@@ -60,21 +92,6 @@ fn login(node: &str, cmd: Option<&str>) -> Result<(), Box<dyn std::error::Error>
     }
 }
 
-fn get_distro_name() -> String {
-    Ini::load_from_file("/etc/os-release")
-        .ok()
-        .and_then(|file| {
-            let section = file.general_section();
-            Some(
-                section
-                    .get("PRETTY_NAME")
-                    .unwrap_or(&"Linux".to_string())
-                    .to_string(),
-            )
-        })
-        .unwrap_or("Linux".to_string())
-}
-
 fn main() {
     let matches = App::new("simple_greet")
         .version(crate_version!())
@@ -105,16 +122,12 @@ fn main() {
         }
     };
 
-    let vtnr: usize = env::var("XDG_VTNR")
-        .unwrap_or("0".to_string())
-        .parse()
-        .expect("unable to parse VTNR");
+
+    if let Ok(issue) = get_issue() {
+        print!("{}", issue);
+    }
 
     let uts = uname();
-    println!("{} {} (tty{})", get_distro_name(), uts.release(), vtnr);
-
-    println!("");
-
     for _ in 0..max_failures {
         match login(uts.nodename(), cmd) {
             Ok(()) => {
