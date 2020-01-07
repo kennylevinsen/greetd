@@ -19,7 +19,7 @@ const VT_WAITACTIVE: u16 = 0x5607;
 const VT_SETACTIVATE: u16 = 0x560F;
 const VT_AUTO: u8 = 0;
 
-ioctl_write_int_bad!(vt_kdsetmode, KDSETMODE);
+ioctl_write_int_bad!(kd_setmode, KDSETMODE);
 ioctl_write_int_bad!(vt_activate, VT_ACTIVATE);
 ioctl_write_int_bad!(vt_waitactive, VT_WAITACTIVE);
 ioctl_write_ptr_bad!(vt_setmode, VT_SETMODE, vt_mode);
@@ -70,7 +70,7 @@ impl KdMode {
 pub fn restore(terminal: usize) -> Result<(), Box<dyn Error>> {
     let tty_0 = Terminal::open(0)?;
     let tty_x = Terminal::open(terminal)?;
-    tty_x.set_kdmode(KdMode::Text)?;
+    tty_x.kd_setmode(KdMode::Text)?;
     tty_0.vt_setactivate(terminal)?;
     Ok(())
 }
@@ -96,9 +96,9 @@ impl Terminal {
         }
     }
 
-    pub fn set_kdmode(&self, mode: KdMode) -> Result<(), Box<dyn Error>> {
+    pub fn kd_setmode(&self, mode: KdMode) -> Result<(), Box<dyn Error>> {
         let mode = mode.to_const();
-        let ret = unsafe { vt_kdsetmode(self.fd, mode) };
+        let ret = unsafe { kd_setmode(self.fd, mode) };
 
         if let Err(v) = ret {
             Err(format!("terminal: unable to set kernel display mode: {}", v).into())

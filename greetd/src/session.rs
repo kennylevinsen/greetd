@@ -170,7 +170,7 @@ impl<'a> Session<'a> {
         // Set the target VT mode to text for compatibility. Other login
         // managers set this to graphics, but that disallows start of textual
         // applications, which greetd aims to support.
-        target_term.set_kdmode(terminal::KdMode::Text)?;
+        target_term.kd_setmode(terminal::KdMode::Text)?;
 
         // A bit more work if a VT switch is required.
         if self.vt != target_term.vt_get_current()? {
