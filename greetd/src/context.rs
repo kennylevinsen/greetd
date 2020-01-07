@@ -9,6 +9,7 @@ use nix::unistd::{alarm, execv, fork, ForkResult};
 
 use crate::scrambler::Scrambler;
 use crate::session::{Session, SessionChild};
+use crate::terminal;
 use greet_proto::{ShutdownAction, VtSelection};
 
 /// Context keeps track of running sessions and start new ones.
@@ -19,7 +20,7 @@ pub struct Context<'a> {
 
     greeter_bin: String,
     greeter_user: String,
-    vt: VtSelection,
+    vt: usize,
 }
 
 fn run(cmd: &str) -> Result<(), Box<dyn Error>> {
@@ -43,7 +44,7 @@ fn run(cmd: &str) -> Result<(), Box<dyn Error>> {
 }
 
 impl<'a> Context<'a> {
-    pub fn new(greeter_bin: String, greeter_user: String, vt: VtSelection) -> Context<'a> {
+    pub fn new(greeter_bin: String, greeter_user: String, vt: usize) -> Context<'a> {
         Context {
             session: None,
             greeter: None,
@@ -96,6 +97,12 @@ impl<'a> Context<'a> {
             eprintln!("login session already active");
             return Err(io::Error::new(io::ErrorKind::Other, "session already active").into());
         }
+
+        let vt = match vt {
+            VtSelection::Current => self.vt,
+            VtSelection::Specific(vt) => vt,
+            VtSelection::Next => terminal::Terminal::open(0)?.vt_get_next()?,
+        };
 
         let pending_session =
             Session::new("login", "user", &username, &password, cmd, provided_env, vt)?;

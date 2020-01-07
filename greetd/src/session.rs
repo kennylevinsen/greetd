@@ -22,7 +22,6 @@ use users::User;
 use crate::pam::session::PamSession;
 use crate::signals::blocked_sigset;
 use crate::terminal;
-use greet_proto::VtSelection;
 
 fn dup_fd_cloexec(fd: RawFd) -> Result<RawFd, Box<dyn Error>> {
     match fcntl(fd, FcntlArg::F_DUPFD_CLOEXEC(0)) {
@@ -102,7 +101,7 @@ pub struct Session<'a> {
     user: User,
 
     class: String,
-    vt: VtSelection,
+    vt: usize,
     env: HashMap<String, String>,
     cmd: Vec<String>,
 }
@@ -123,7 +122,7 @@ impl<'a> Session<'a> {
         password: &str,
         cmd: Vec<String>,
         provided_env: HashMap<String, String>,
-        vt: VtSelection,
+        vt: usize,
     ) -> Result<Session<'a>, Box<dyn Error>> {
         let mut pam_session = PamSession::start(service)?;
         pam_session.converse.set_credentials(username, password);
@@ -159,47 +158,38 @@ impl<'a> Session<'a> {
         // Make this process a session leader.
         setsid().map_err(|e| format!("unable to become session leader: {}", e))?;
 
-        // Select VT.
-        let console = terminal::Terminal::open(0)?;
-        let vt = match self.vt {
-            VtSelection::Specific(vt) => vt,
-            VtSelection::Next => console.vt_get_next()?,
-            VtSelection::Current => console.vt_get_current()?,
-        };
-
         // Opening our target terminal. This will automatically make it our
         // controlling terminal. An attempt was made to use TIOCSCTTY to do
         // this explicitly, but it neither worked nor was worth the additional
         // code.
-        let mut target_vt = terminal::Terminal::open(vt)?;
-
-        eprintln!("session worker: switching to VT {}", target_vt.terminal());
+        let mut target_term = terminal::Terminal::open(self.vt)?;
 
         // Clear TTY so that it will be empty when we switch to it.
-        target_vt.term_clear()?;
+        target_term.term_clear()?;
 
         // Set the target VT mode to text for compatibility. Other login
         // managers set this to graphics, but that disallows start of textual
         // applications, which greetd aims to support.
-        target_vt.set_kdmode(terminal::KdMode::Text)?;
+        target_term.set_kdmode(terminal::KdMode::Text)?;
 
-        // Set VT mode to VT_AUTO.
-        target_vt.vt_mode_clean()?;
-
-        // Perform a switch to the target VT if required.
-        console.vt_activate(vt)?;
-
-        eprintln!("session worker: VT switch complete");
+        // A bit more work if a VT switch is required.
+        if self.vt != target_term.vt_get_current()? {
+            // Perform a switch to the target VT, simultaneously resetting it to
+            // VT_AUTO.
+            eprintln!("session worker: switching to VT {}", self.vt);
+            target_term.vt_mode_clean()?;
+            target_term.vt_activate(self.vt)?;
+            eprintln!("session worker: switch to VT {} complete", self.vt);
+        }
 
         // Hook up std(in|out|err). This allows us to run console applications.
         // Also, hooking up stdin is required, as applications otherwise fail to
         // start, both for graphical and console-based applications. I do not
         // know why this is the case.
-        target_vt.term_connect_pipes()?;
+        target_term.term_connect_pipes()?;
 
         // We no longer need these, so close them to avoid inheritance.
-        drop(console);
-        drop(target_vt);
+        drop(target_term);
 
         // Prepare some values from the user struct we gathered earlier.
         let username = self.user.name().to_str().unwrap_or("");
@@ -216,7 +206,7 @@ impl<'a> Session<'a> {
         let prepared_env = [
             "XDG_SEAT=seat0".to_string(),
             format!("XDG_SESSION_CLASS={}", self.class),
-            format!("XDG_VTNR={}", vt),
+            format!("XDG_VTNR={}", self.vt),
             format!("USER={}", username),
             format!("LOGNAME={}", username),
             format!("HOME={}", home),
@@ -237,7 +227,7 @@ impl<'a> Session<'a> {
 
         // Tell PAM what TTY we're targetting, which is used by logind.
         self.pam
-            .set_item(PamItemType::TTY, &format!("/dev/tty{}", vt))
+            .set_item(PamItemType::TTY, &format!("/dev/tty{}", self.vt))
             .map_err(|e| format!("unable to set PAM TTY item: {}", e))?;
 
         // Not the credentials you think.

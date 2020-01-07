@@ -4,6 +4,8 @@ use std::fs::remove_file;
 use nix::poll::{poll, PollFd};
 use nix::unistd::chown;
 
+use greet_proto::VtSelection;
+
 mod config;
 mod client;
 mod context;
@@ -20,11 +22,6 @@ fn main() {
 
     eprintln!("starting greetd");
 
-    let start_vt = terminal::Terminal::open(0)
-        .expect("unable to open controlling terminal")
-        .vt_get_current()
-        .expect("unable to get current vt");
-
     env::set_var("GREETD_SOCK", &config.socket_path);
 
     let _ = remove_file(config.socket_path.clone());
@@ -38,7 +35,15 @@ fn main() {
 
     let signals = signals::Signals::new().expect("unable to create signalfd");
 
-    let vt = config.vt();
+    let term = terminal::Terminal::open(0)
+        .expect("unable to open controlling terminal");
+    let vt = match config.vt() {
+        VtSelection::Current => term.vt_get_current().expect("unable to get current VT"),
+        VtSelection::Next => term.vt_get_next().expect("unable to get next VT"),
+        VtSelection::Specific(v) => v
+    };
+    drop(term);
+
     let mut ctx = context::Context::new(config.greeter, config.greeter_user, vt);
     if let Err(e) = ctx.greet() {
         eprintln!("unable to start greeter: {}", e);
@@ -64,7 +69,7 @@ fn main() {
 
         if let Err(e) = poll(&mut fds, -1) {
             eprintln!("poll failed: {}", e);
-            terminal::restore(start_vt).expect("unable to reset vt");
+            terminal::restore(vt).expect("unable to reset vt");
             std::process::exit(1);
         }
 
@@ -91,7 +96,7 @@ fn main() {
                         },
                         Err(e) => {
                             eprintln!("task failed: {}", e);
-                            terminal::restore(start_vt).expect("unable to reset vt");
+                            terminal::restore(vt).expect("unable to reset vt");
                             std::process::exit(1);
                         }
                     }
