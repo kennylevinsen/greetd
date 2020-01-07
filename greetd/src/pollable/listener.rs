@@ -5,9 +5,9 @@ use std::os::unix::net::UnixListener;
 use nix::fcntl::{fcntl, FcntlArg, FdFlag};
 use nix::poll::PollFlags;
 
-use crate::client::Client;
+use super::pollable::{PollRunResult, Pollable};
+use super::client::Client;
 use crate::context::Context;
-use crate::pollable::{PollRunResult, Pollable};
 
 pub struct Listener {
     listener: UnixListener,

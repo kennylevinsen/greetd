@@ -4,15 +4,12 @@ use std::fs::remove_file;
 use nix::poll::{poll, PollFd};
 use nix::unistd::chown;
 
-mod client;
 mod config;
 mod context;
-mod listener;
 mod pam;
 mod pollable;
 mod scrambler;
 mod session;
-mod signals;
 mod terminal;
 
 fn main() {
@@ -23,7 +20,7 @@ fn main() {
     env::set_var("GREETD_SOCK", &config.socket_path);
 
     let _ = remove_file(config.socket_path.clone());
-    let listener = listener::Listener::new(&config.socket_path).expect("unable to create listener");
+    let listener = pollable::Listener::new(&config.socket_path).expect("unable to create listener");
 
     let u = users::get_user_by_name(&config.greeter_user).expect("unable to get user struct");
     let uid = nix::unistd::Uid::from_raw(u.uid());
@@ -31,7 +28,7 @@ fn main() {
     chown(config.socket_path.as_str(), Some(uid), Some(gid))
         .expect("unable to chown greetd socket");
 
-    let signals = signals::Signals::new().expect("unable to create signalfd");
+    let signals = pollable::Signals::new().expect("unable to create signalfd");
 
     let term = terminal::Terminal::open(0).expect("unable to open controlling terminal");
     let vt = match config.vt() {

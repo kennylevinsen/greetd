@@ -4,51 +4,8 @@ use std::io::Write;
 use std::os::unix::io::{AsRawFd, RawFd};
 
 use nix::unistd::dup2;
-use nix::{ioctl_read_bad, ioctl_write_int_bad, ioctl_write_ptr_bad};
 
-const KDSETMODE: u16 = 0x4B3A;
-const KDTEXT: i32 = 0x00;
-const KDGRAPHICS: i32 = 0x01;
-const VT_OPENQRY: u16 = 0x5600;
-const VT_SETMODE: u16 = 0x5602;
-const VT_GETSTATE: u16 = 0x5603;
-const VT_ACTIVATE: u16 = 0x5606;
-const VT_WAITACTIVE: u16 = 0x5607;
-const VT_SETACTIVATE: u16 = 0x560F;
-const VT_AUTO: u8 = 0;
-
-ioctl_write_int_bad!(kd_setmode, KDSETMODE);
-ioctl_write_int_bad!(vt_activate, VT_ACTIVATE);
-ioctl_write_int_bad!(vt_waitactive, VT_WAITACTIVE);
-ioctl_write_ptr_bad!(vt_setmode, VT_SETMODE, vt_mode);
-ioctl_write_ptr_bad!(vt_setactivate, VT_SETACTIVATE, vt_setactivate);
-ioctl_read_bad!(vt_openqry, VT_OPENQRY, i64);
-ioctl_read_bad!(vt_getstate, VT_GETSTATE, vt_state);
-
-#[allow(dead_code)]
-#[repr(C)]
-pub struct vt_mode {
-    mode: u8,
-    waitv: u8,
-    relsig: u16,
-    acqsig: u16,
-    frsig: u16,
-}
-
-#[allow(dead_code)]
-#[repr(C)]
-pub struct vt_setactivate {
-    console: u64,
-    mode: vt_mode,
-}
-
-#[allow(dead_code)]
-#[repr(C)]
-pub struct vt_state {
-    v_active: u16,
-    v_signal: u16,
-    v_state: u16,
-}
+use super::ioctl;
 
 #[allow(dead_code)]
 pub enum KdMode {
@@ -59,8 +16,8 @@ pub enum KdMode {
 impl KdMode {
     fn to_const(&self) -> i32 {
         match self {
-            KdMode::Text => KDTEXT,
-            KdMode::Graphics => KDGRAPHICS,
+            KdMode::Text => ioctl::KDTEXT,
+            KdMode::Graphics => ioctl::KDGRAPHICS,
         }
     }
 }
@@ -98,7 +55,7 @@ impl Terminal {
     /// between VT switches if both source and target VT is in graphics mode.
     pub fn kd_setmode(&self, mode: KdMode) -> Result<(), Box<dyn Error>> {
         let mode = mode.to_const();
-        let ret = unsafe { kd_setmode(self.file.as_raw_fd(), mode) };
+        let ret = unsafe { ioctl::kd_setmode(self.file.as_raw_fd(), mode) };
 
         if let Err(v) = ret {
             Err(format!("terminal: unable to set kernel display mode: {}", v).into())
@@ -109,10 +66,10 @@ impl Terminal {
 
     /// Switches to the specified VT and waits for completion of switch.
     fn vt_activate(&self, target_vt: usize) -> Result<(), Box<dyn Error>> {
-        if let Err(v) = unsafe { vt_activate(self.file.as_raw_fd(), target_vt as i32) } {
+        if let Err(v) = unsafe { ioctl::vt_activate(self.file.as_raw_fd(), target_vt as i32) } {
             return Err(format!("terminal: unable to activate: {}", v).into());
         }
-        if let Err(v) = unsafe { vt_waitactive(self.file.as_raw_fd(), target_vt as i32) } {
+        if let Err(v) = unsafe { ioctl::vt_waitactive(self.file.as_raw_fd(), target_vt as i32) } {
             return Err(format!("terminal: unable to wait for activation: {}", v).into());
         }
         Ok(())
@@ -120,14 +77,14 @@ impl Terminal {
 
     /// Set the VT mode to VT_AUTO with everything cleared.
     fn vt_mode_clean(&self) -> Result<(), Box<dyn Error>> {
-        let mode = vt_mode {
-            mode: VT_AUTO,
+        let mode = ioctl::vt_mode {
+            mode: ioctl::VT_AUTO,
             waitv: 0,
             relsig: 0,
             acqsig: 0,
             frsig: 0,
         };
-        let res = unsafe { vt_setmode(self.file.as_raw_fd(), &mode) };
+        let res = unsafe { ioctl::vt_setmode(self.file.as_raw_fd(), &mode) };
 
         if let Err(v) = res {
             Err(format!("terminal: unable to set vt mode: {}", v).into())
@@ -143,20 +100,20 @@ impl Terminal {
     /// VT_WAITACTIVE is used to wait for shell activation.
     pub fn vt_setactivate(&self, target_vt: usize) -> Result<(), Box<dyn Error>> {
         if cfg!(target_os = "linux") {
-            let arg = vt_setactivate {
+            let arg = ioctl::vt_setactivate {
                 console: target_vt as u64,
-                mode: vt_mode {
-                    mode: VT_AUTO,
+                mode: ioctl::vt_mode {
+                    mode: ioctl::VT_AUTO,
                     waitv: 0,
                     relsig: 0,
                     acqsig: 0,
                     frsig: 0,
                 },
             };
-            if let Err(v) = unsafe { vt_setactivate(self.file.as_raw_fd(), &arg) } {
+            if let Err(v) = unsafe { ioctl::vt_setactivate(self.file.as_raw_fd(), &arg) } {
                 return Err(format!("terminal: unable to setactivate: {}", v).into());
             }
-            if let Err(v) = unsafe { vt_waitactive(self.file.as_raw_fd(), target_vt as i32) } {
+            if let Err(v) = unsafe { ioctl::vt_waitactive(self.file.as_raw_fd(), target_vt as i32) } {
                 return Err(format!("terminal: unable to wait for activation: {}", v).into());
             }
         } else {
@@ -168,12 +125,12 @@ impl Terminal {
 
     /// Retrieves the current VT number.
     pub fn vt_get_current(&self) -> Result<usize, Box<dyn Error>> {
-        let mut state = vt_state {
+        let mut state = ioctl::vt_state {
             v_active: 0,
             v_signal: 0,
             v_state: 0,
         };
-        let res = unsafe { vt_getstate(self.file.as_raw_fd(), &mut state as *mut vt_state) };
+        let res = unsafe { ioctl::vt_getstate(self.file.as_raw_fd(), &mut state as *mut ioctl::vt_state) };
 
         if let Err(v) = res {
             Err(format!("terminal: unable to get current vt: {}", v).into())
@@ -189,7 +146,7 @@ impl Terminal {
     /// and use the VT before you get to it.
     pub fn vt_get_next(&self) -> Result<usize, Box<dyn Error>> {
         let mut next_vt: i64 = 0;
-        let res = unsafe { vt_openqry(self.file.as_raw_fd(), &mut next_vt as *mut i64) };
+        let res = unsafe { ioctl::vt_openqry(self.file.as_raw_fd(), &mut next_vt as *mut i64) };
 
         if let Err(v) = res {
             Err(format!("terminal: unable to get next vt: {}", v).into())

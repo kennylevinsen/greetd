@@ -19,7 +19,7 @@ use users::os::unix::UserExt;
 use users::User;
 
 use crate::pam::session::PamSession;
-use crate::signals::blocked_sigset;
+use crate::pollable::signals::blocked_sigset;
 use crate::terminal;
 
 fn dup_fd_cloexec(fd: RawFd) -> Result<RawFd, Box<dyn Error>> {
