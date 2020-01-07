@@ -62,20 +62,6 @@ impl Header {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
-pub enum VtSelection {
-    Current,
-    Next,
-    Specific(usize),
-}
-
-impl Default for VtSelection {
-    fn default() -> Self {
-        VtSelection::Current
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
-#[serde(rename_all = "snake_case")]
 pub enum ShutdownAction {
     Poweroff,
     Reboot,
@@ -91,9 +77,6 @@ pub enum Request {
         password: String,
         command: Vec<String>,
         env: HashMap<String, String>,
-
-        #[serde(default)]
-        vt: VtSelection,
     },
     Shutdown {
         action: ShutdownAction,

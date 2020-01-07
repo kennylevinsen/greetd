@@ -103,8 +103,7 @@ impl Pollable for Client {
                                     password,
                                     command,
                                     env,
-                                    vt,
-                                } => match ctx.login(username, password, command, env, vt) {
+                                } => match ctx.login(username, password, command, env) {
                                     Ok(_) => Response::Success,
                                     Err(e) => Response::Failure(Failure::LoginError {
                                         description: format!("{}", e),

@@ -4,8 +4,6 @@ use std::fs::read_to_string;
 use clap::{crate_authors, crate_version, App, Arg};
 use serde::Deserialize;
 
-use greet_proto::VtSelection;
-
 fn default_vt() -> toml::Value {
     toml::Value::String("next".to_string())
 }
@@ -23,6 +21,12 @@ pub struct Config {
 
     #[serde(default = "default_socket_path")]
     pub socket_path: String,
+}
+
+pub enum VtSelection {
+    Next,
+    Current,
+    Specific(usize)
 }
 
 impl Config {

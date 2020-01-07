@@ -4,8 +4,6 @@ use std::fs::remove_file;
 use nix::poll::{poll, PollFd};
 use nix::unistd::chown;
 
-use greet_proto::VtSelection;
-
 mod config;
 mod client;
 mod context;
@@ -38,9 +36,9 @@ fn main() {
     let term = terminal::Terminal::open(0)
         .expect("unable to open controlling terminal");
     let vt = match config.vt() {
-        VtSelection::Current => term.vt_get_current().expect("unable to get current VT"),
-        VtSelection::Next => term.vt_get_next().expect("unable to get next VT"),
-        VtSelection::Specific(v) => v
+        config::VtSelection::Current => term.vt_get_current().expect("unable to get current VT"),
+        config::VtSelection::Next => term.vt_get_next().expect("unable to get next VT"),
+        config::VtSelection::Specific(v) => v
     };
     drop(term);
 
@@ -72,7 +70,6 @@ fn main() {
             terminal::restore(vt).expect("unable to reset vt");
             std::process::exit(1);
         }
-
 
         let mut idx_compensation: isize = 0;
         for (idx, fd) in fds.iter().enumerate() {

@@ -8,7 +8,7 @@ use rpassword::prompt_password_stderr;
 use clap::{crate_authors, crate_version, App, Arg};
 use nix::sys::utsname::uname;
 
-use greet_proto::{Header, Request, Response, VtSelection};
+use greet_proto::{Header, Request, Response};
 
 fn prompt_stderr(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     let stdin = io::stdin();
@@ -17,7 +17,7 @@ fn prompt_stderr(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     Ok(stdin_iter.next().unwrap()?)
 }
 
-fn login(node: &str, cmd: Option<&str>, vt: VtSelection) -> Result<(), Box<dyn std::error::Error>> {
+fn login(node: &str, cmd: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     let username = prompt_stderr(&format!("{} login: ", node)).unwrap();
     let password = prompt_password_stderr("Password: ").unwrap();
     let command = match cmd {
@@ -34,7 +34,6 @@ fn login(node: &str, cmd: Option<&str>, vt: VtSelection) -> Result<(), Box<dyn s
         password,
         command: vec![command],
         env,
-        vt,
     };
 
     // Write request
@@ -111,13 +110,13 @@ fn main() {
     };
 
     let vntr: usize = env::var("XDG_VTNR").unwrap_or("0".to_string()).parse().expect("unable to parse VTNR");
-    let (vt_text, target_vt) = match matches.value_of("vt") {
-        None => (format!("tty{}; next VT", vntr), VtSelection::Next),
-        Some("next") => (format!("tty{}; next VT", vntr), VtSelection::Next),
-        Some("current") => (format!("tty{}", vntr), VtSelection::Current),
-        Some(n) => match n.parse() {
-            Ok(v) if v == vntr => (format!("tty{}", v), VtSelection::Specific(v)),
-            Ok(v) => (format!("tty{}; tty{}", vntr, v), VtSelection::Specific(v)),
+    let vt_text = match matches.value_of("vt") {
+        None => format!("tty{}; next VT", vntr),
+        Some("next") => format!("tty{}; next VT", vntr),
+        Some("current") => format!("tty{}", vntr),
+        Some(n) => match n.parse::<usize>() {
+            Ok(v) if v == vntr => format!("tty{}", v),
+            Ok(v) => format!("tty{}; tty{}", vntr, v),
             Err(e) => {
                 eprintln!("unable to parse VT number: {}", e);
                 std::process::exit(1)
@@ -134,7 +133,7 @@ fn main() {
     println!("");
 
     for _ in 0..max_failures {
-        match login(uts.nodename(), cmd, target_vt) {
+        match login(uts.nodename(), cmd) {
             Ok(()) => {
                 break;
             }
