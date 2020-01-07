@@ -5,9 +5,9 @@ Generic display manager, capable of anything from text-based login to shell (rep
 ## List of known greetd greeters
 
 - agreety - The simple, text-based greeter.
-- gtkgreet - Simple GTK based greeter (to be used with something like `cage`)
+- gtkgreet - Simple GTK based greeter (xdg-shell or wlr-layer-shell, to be used with something like `cage`)
 - dlm - Dumb Login Manager (using fbdev)
-- wlgreet - Wayland greeter (stale)
+- wlgreet - Wayland greeter (using wlr-layer-shell, to be used with something like `sway`)
 
 ## Overview
 
@@ -41,20 +41,17 @@ The greeter runs as a configured user, which is supposed to be one with no inter
 
 - `cp greeter.pam /etc/pam.d/greeter`
 - `cp greetd.service /etc/systemd/system/greetd.service`
-- `mkdir /etc/greeter`
-- `cp config.toml /etc/greeter/config.toml`
-- Install a greeter (dlm, gtkgreet, etc.) and configure greetd (`/etc/greeter/config.toml`)
+- `mkdir /etc/greetd`
+- `cp config.toml /etc/greetd/config.toml`
+- Look in the configuration file `/etc/greetd/config.toml` and edit as appropriate.
 - Start the greetd service.
 
 ## Dumb standalone demo
 
 (Requires the pam service installed)
 
-1. echo "exec alacritty" > /tmp/sway-lm-config
-2. sudo greetd --vt 4 --greeter "sway --config /tmp/sway-lm-config" --greeter-user $LOGNAME
-3. (In the new terminal): greetctl
-4. Answer the questions, and the sway greeter will be replaced by whatever you typed if your login is successful.
-
+1. `sudo greetd --vt next --greeter "agreety" --greeter-user $LOGNAME`
+2. Answer the questions (username, password, command), and `agreety` will be replaced by the command you typed if your login is successful. See the `agreety` and `greetd` help texts for more info
 
 # Protocol
 
@@ -73,7 +70,7 @@ Requests and responses are encoded the same.
 
 ### Login
 
-Attempts to log the user in. The specofied command will be run with the specified environment as the requested user if login is successful. The greeter must exit if the login is a success to permit this to happen.
+Attempts to log the user in. The specified command will be run with the specified environment as the requested user if login is successful. The greeter must exit if the login is a success to permit this to happen.
 
 
 ```
