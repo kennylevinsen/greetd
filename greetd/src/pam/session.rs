@@ -87,6 +87,8 @@ impl<'a> PamSession<'a> {
     pub fn set_item(&mut self, item: PamItemType, value: &str) -> Result<(), Box<dyn Error>> {
         let s = CString::new(value).unwrap();
         self.last_code = PamReturnCode::from(unsafe {
+            // pam_set_item is exposed in a weird way in pam_sys::wrapped, so
+            // we use the raw version here instead
             pam_sys::raw::pam_set_item(self.handle, item as i32, s.as_ptr() as *const c_void)
         });
         match self.last_code {
@@ -97,9 +99,7 @@ impl<'a> PamSession<'a> {
 
     pub fn get_user(&mut self) -> Result<String, Box<dyn Error>> {
         let mut p: *const i8 = ptr::null_mut();
-        self.last_code = PamReturnCode::from(unsafe {
-            pam_sys::raw::pam_get_user(self.handle, &mut p, ptr::null())
-        });
+        self.last_code = pam_sys::get_user(self.handle, &mut p, ptr::null());
         match self.last_code {
             PamReturnCode::SUCCESS => {
                 Ok((unsafe { CStr::from_ptr(p) }).to_str().unwrap().to_string())
