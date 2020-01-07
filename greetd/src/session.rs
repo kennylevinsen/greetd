@@ -177,8 +177,7 @@ impl<'a> Session<'a> {
             // Perform a switch to the target VT, simultaneously resetting it to
             // VT_AUTO.
             eprintln!("session worker: switching to VT {}", self.vt);
-            target_term.vt_mode_clean()?;
-            target_term.vt_activate(self.vt)?;
+            target_term.vt_setactivate(self.vt)?;
             eprintln!("session worker: switch to VT {} complete", self.vt);
         }
 

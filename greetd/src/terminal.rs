@@ -16,12 +16,14 @@ const VT_SETMODE: u16 = 0x5602;
 const VT_GETSTATE: u16 = 0x5603;
 const VT_ACTIVATE: u16 = 0x5606;
 const VT_WAITACTIVE: u16 = 0x5607;
+const VT_SETACTIVATE: u16 = 0x560F;
 const VT_AUTO: u8 = 0;
 
 ioctl_write_int_bad!(vt_kdsetmode, KDSETMODE);
 ioctl_write_int_bad!(vt_activate, VT_ACTIVATE);
 ioctl_write_int_bad!(vt_waitactive, VT_WAITACTIVE);
 ioctl_write_ptr_bad!(vt_setmode, VT_SETMODE, vt_mode);
+ioctl_write_ptr_bad!(vt_setactivate, VT_SETACTIVATE, vt_setactivate);
 ioctl_read_bad!(vt_openqry, VT_OPENQRY, i64);
 ioctl_read_bad!(vt_getstate, VT_GETSTATE, vt_state);
 
@@ -33,6 +35,13 @@ pub struct vt_mode {
     relsig: u16,
     acqsig: u16,
     frsig: u16,
+}
+
+#[allow(dead_code)]
+#[repr(C)]
+pub struct vt_setactivate {
+    console: u64,
+    mode: vt_mode,
 }
 
 #[allow(dead_code)]
@@ -62,8 +71,7 @@ pub fn restore(terminal: usize) -> Result<(), Box<dyn Error>> {
     let tty_0 = Terminal::open(0)?;
     let tty_x = Terminal::open(terminal)?;
     tty_x.set_kdmode(KdMode::Text)?;
-    tty_x.vt_mode_clean()?;
-    tty_0.vt_activate(terminal)?;
+    tty_0.vt_setactivate(terminal)?;
     Ok(())
 }
 
@@ -71,7 +79,6 @@ pub struct Terminal {
     // Note: This will close our fd when we're dropped.
     file: File,
     fd: RawFd,
-    terminal: usize,
 }
 
 impl Terminal {
@@ -84,24 +91,9 @@ impl Terminal {
             Ok(fd) => Ok(Terminal {
                 file: unsafe { File::from_raw_fd(fd) },
                 fd,
-                terminal,
             }),
             Err(e) => Err(format!("terminal: unable to open: {}", e).into()),
         }
-    }
-
-    pub fn terminal(&self) -> usize {
-        return self.terminal;
-    }
-
-    pub fn vt_activate(&self, target_vt: usize) -> Result<(), Box<dyn Error>> {
-        if let Err(v) = unsafe { vt_activate(self.fd, target_vt as i32) } {
-            return Err(format!("terminal: unable to activate: {}", v).into());
-        }
-        if let Err(v) = unsafe { vt_waitactive(self.fd, target_vt as i32) } {
-            return Err(format!("terminal: unable to wait for activation: {}", v).into());
-        }
-        Ok(())
     }
 
     pub fn set_kdmode(&self, mode: KdMode) -> Result<(), Box<dyn Error>> {
@@ -115,7 +107,17 @@ impl Terminal {
         }
     }
 
-    pub fn vt_mode_clean(&self) -> Result<(), Box<dyn Error>> {
+    fn vt_activate(&self, target_vt: usize) -> Result<(), Box<dyn Error>> {
+        if let Err(v) = unsafe { vt_activate(self.fd, target_vt as i32) } {
+            return Err(format!("terminal: unable to activate: {}", v).into());
+        }
+        if let Err(v) = unsafe { vt_waitactive(self.fd, target_vt as i32) } {
+            return Err(format!("terminal: unable to wait for activation: {}", v).into());
+        }
+        Ok(())
+    }
+
+    fn vt_mode_clean(&self) -> Result<(), Box<dyn Error>> {
         let mode = vt_mode {
             mode: VT_AUTO,
             waitv: 0,
@@ -130,6 +132,31 @@ impl Terminal {
         } else {
             Ok(())
         }
+    }
+
+    pub fn vt_setactivate(&self, target_vt: usize) -> Result<(), Box<dyn Error>> {
+        if cfg!(target_os = "linux") {
+            let arg = vt_setactivate {
+                console: target_vt as u64,
+                mode: vt_mode{
+                    mode: VT_AUTO,
+                    waitv: 0,
+                    relsig: 0,
+                    acqsig: 0,
+                    frsig: 0,
+                },
+            };
+            if let Err(v) = unsafe { vt_setactivate(self.fd, &arg) } {
+                return Err(format!("terminal: unable to setactivate: {}", v).into());
+            }
+            if let Err(v) = unsafe { vt_waitactive(self.fd, target_vt as i32) } {
+                return Err(format!("terminal: unable to wait for activation: {}", v).into());
+            }
+        } else {
+            self.vt_mode_clean()?;
+            self.vt_activate(target_vt)?;
+        }
+        Ok(())
     }
 
     pub fn vt_get_current(&self) -> Result<usize, Box<dyn Error>> {
