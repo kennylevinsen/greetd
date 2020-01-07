@@ -82,7 +82,6 @@ Attempts to log the user in. The specofied command will be run with the specifie
 	"username": "user",
 	"password": "password",
 	"command": ["sway"],
-	"vt": "next", /* one of `"next"`, `"current"` or `{"specific": NUM}` */
 	"env": {
 		"XDG_SESSION_TYPE": "wayland",
 		"XDG_SESSION_DESKTOP": "sway",
