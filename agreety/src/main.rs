@@ -3,10 +3,10 @@ use std::env;
 use std::io::{self, BufRead, Read, Write};
 use std::os::unix::net::UnixStream;
 
-use ini::Ini;
-use rpassword::prompt_password_stderr;
 use clap::{crate_authors, crate_version, App, Arg};
+use ini::Ini;
 use nix::sys::utsname::uname;
+use rpassword::prompt_password_stderr;
 
 use greet_proto::{Header, Request, Response};
 
@@ -67,13 +67,18 @@ fn get_distro_name() -> String {
         .ok()
         .and_then(|file| {
             let section = file.general_section();
-            Some(section.get("PRETTY_NAME").unwrap_or(&"Linux".to_string()).to_string())
+            Some(
+                section
+                    .get("PRETTY_NAME")
+                    .unwrap_or(&"Linux".to_string())
+                    .to_string(),
+            )
         })
         .unwrap_or("Linux".to_string())
 }
 
 fn main() {
-   let matches = App::new("simple_greet")
+    let matches = App::new("simple_greet")
         .version(crate_version!())
         .author(crate_authors!())
         .about("Simple greeter for greetd")
@@ -94,7 +99,7 @@ fn main() {
         .get_matches();
 
     let cmd = matches.value_of("command");
-    let max_failures:usize = match matches.value_of("max-failures").unwrap_or("5").parse() {
+    let max_failures: usize = match matches.value_of("max-failures").unwrap_or("5").parse() {
         Ok(v) => v,
         Err(e) => {
             eprintln!("unable to parse max failures: {}", e);
@@ -102,26 +107,13 @@ fn main() {
         }
     };
 
-    let vntr: usize = env::var("XDG_VTNR").unwrap_or("0".to_string()).parse().expect("unable to parse VTNR");
-    let vt_text = match matches.value_of("vt") {
-        None => format!("tty{}; next VT", vntr),
-        Some("next") => format!("tty{}; next VT", vntr),
-        Some("current") => format!("tty{}", vntr),
-        Some(n) => match n.parse::<usize>() {
-            Ok(v) if v == vntr => format!("tty{}", v),
-            Ok(v) => format!("tty{}; tty{}", vntr, v),
-            Err(e) => {
-                eprintln!("unable to parse VT number: {}", e);
-                std::process::exit(1)
-            }
-        },
-    };
+    let vtnr: usize = env::var("XDG_VTNR")
+        .unwrap_or("0".to_string())
+        .parse()
+        .expect("unable to parse VTNR");
 
     let uts = uname();
-    println!("{} {} ({})",
-        get_distro_name(),
-        uts.release(),
-        vt_text);
+    println!("{} {} (tty{})", get_distro_name(), uts.release(), vtnr);
 
     println!("");
 
