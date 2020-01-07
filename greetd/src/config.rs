@@ -26,7 +26,7 @@ pub struct Config {
 pub enum VtSelection {
     Next,
     Current,
-    Specific(usize)
+    Specific(usize),
 }
 
 impl Config {
@@ -36,8 +36,7 @@ impl Config {
                 "next" => VtSelection::Next,
                 "current" => VtSelection::Current,
                 _ => panic!("unknown value of vt, expect next, current, or vt number"),
-
-            }
+            },
             toml::Value::Integer(u) => VtSelection::Specific(*u as usize),
             _ => panic!("unknown value of vt, expect next, current, or vt number"),
         }

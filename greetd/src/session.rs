@@ -149,7 +149,6 @@ impl<'a> Session<'a> {
     /// responsible for the entirety of the session setup and execution. It is
     /// started by Session::start.
     fn session_worker(&mut self, childfd: RawFd) -> Result<(), Box<dyn Error>> {
-
         // Clear the signal masking that was inherited from the parent.
         blocked_sigset()
             .thread_unblock()
@@ -371,8 +370,7 @@ impl<'a> Session<'a> {
 
                 // Run the child entrypoint.
                 if let Err(e) = self.session_worker(childfd) {
-                    writeln!(stderr, "session worker: {}", e)
-                        .expect("could not write log output");
+                    writeln!(stderr, "session worker: {}", e).expect("could not write log output");
                     std::process::exit(1);
                 }
                 std::process::exit(0);

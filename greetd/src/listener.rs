@@ -42,8 +42,6 @@ impl Pollable for Listener {
             Err(_) => return Ok(PollRunResult::Uneventful),
         };
 
-        Ok(PollRunResult::NewPollable(Box::new(
-            Client::new(stream)?,
-        )))
+        Ok(PollRunResult::NewPollable(Box::new(Client::new(stream)?)))
     }
 }

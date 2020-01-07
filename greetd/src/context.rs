@@ -96,8 +96,15 @@ impl<'a> Context<'a> {
             return Err(io::Error::new(io::ErrorKind::Other, "session already active").into());
         }
 
-        let pending_session =
-            Session::new("login", "user", &username, &password, cmd, provided_env, self.vt)?;
+        let pending_session = Session::new(
+            "login",
+            "user",
+            &username,
+            &password,
+            cmd,
+            provided_env,
+            self.vt,
+        )?;
         password.scramble();
         self.pending_session = Some(pending_session);
 

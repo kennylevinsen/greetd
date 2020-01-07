@@ -24,9 +24,9 @@ impl<'a> PamSession<'a> {
 
         match pam_sys::start(service, None, &conv, &mut pam_handle) {
             PamReturnCode::SUCCESS => Ok(PamSession {
-                    handle: unsafe { &mut *pam_handle },
-                    converse: pam_conv,
-                    last_code: PamReturnCode::SUCCESS,
+                handle: unsafe { &mut *pam_handle },
+                converse: pam_conv,
+                last_code: PamReturnCode::SUCCESS,
             }),
             _ => Err(io::Error::new(io::ErrorKind::Other, "unable to start pam session").into()),
         }

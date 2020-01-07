@@ -4,8 +4,8 @@ use std::fs::remove_file;
 use nix::poll::{poll, PollFd};
 use nix::unistd::chown;
 
-mod config;
 mod client;
+mod config;
 mod context;
 mod listener;
 mod pam;
@@ -33,12 +33,11 @@ fn main() {
 
     let signals = signals::Signals::new().expect("unable to create signalfd");
 
-    let term = terminal::Terminal::open(0)
-        .expect("unable to open controlling terminal");
+    let term = terminal::Terminal::open(0).expect("unable to open controlling terminal");
     let vt = match config.vt() {
         config::VtSelection::Current => term.vt_get_current().expect("unable to get current VT"),
         config::VtSelection::Next => term.vt_get_next().expect("unable to get next VT"),
-        config::VtSelection::Specific(v) => v
+        config::VtSelection::Specific(v) => v,
     };
     drop(term);
 
@@ -48,10 +47,8 @@ fn main() {
         std::process::exit(1);
     }
 
-    let mut pollables: Vec<Box<dyn pollable::Pollable>> = vec![
-        Box::new(listener),
-        Box::new(signals),
-    ];
+    let mut pollables: Vec<Box<dyn pollable::Pollable>> =
+        vec![Box::new(listener), Box::new(signals)];
 
     let mut fds: Vec<PollFd> = Vec::new();
     let mut fds_changed = true;
@@ -83,14 +80,14 @@ fn main() {
                             // not require index compensation.
                             pollables.push(p);
                             fds_changed = true;
-                        },
+                        }
                         Ok(pollable::PollRunResult::Dead) => {
                             // We remove a pollable at the current index, so
                             // compensate the index of future accesses.
                             idx_compensation -= 1;
                             pollables.remove(idx);
                             fds_changed = true;
-                        },
+                        }
                         Err(e) => {
                             eprintln!("task failed: {}", e);
                             terminal::restore(vt).expect("unable to reset vt");
