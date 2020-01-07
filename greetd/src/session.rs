@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::env;
 use std::error::Error;
 use std::ffi::CString;
@@ -102,7 +101,7 @@ pub struct Session<'a> {
 
     class: String,
     vt: usize,
-    env: HashMap<String, String>,
+    env: Vec<String>,
     cmd: Vec<String>,
 }
 
@@ -121,7 +120,7 @@ impl<'a> Session<'a> {
         username: &str,
         password: &str,
         cmd: Vec<String>,
-        provided_env: HashMap<String, String>,
+        provided_env: Vec<String>,
         vt: usize,
     ) -> Result<Session<'a>, Box<dyn Error>> {
         let mut pam_session = PamSession::start(service)?;
@@ -211,13 +210,7 @@ impl<'a> Session<'a> {
             format!("SHELL={}", shell),
         ];
 
-        let greeter_env: Vec<String> = self
-            .env
-            .iter()
-            .map(|(key, value)| format!("{}={}", key, value))
-            .collect();
-
-        for e in prepared_env.iter().chain(greeter_env.iter()) {
+        for e in prepared_env.iter().chain(self.env.iter()) {
             self.pam
                 .putenv(e)
                 .map_err(|e| format!("unable to set PAM environment: {}", e))?;

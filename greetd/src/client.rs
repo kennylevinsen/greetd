@@ -101,9 +101,9 @@ impl Pollable for Client {
                                 Request::Login {
                                     username,
                                     password,
-                                    command,
+                                    cmd,
                                     env,
-                                } => match ctx.login(username, password, command, env) {
+                                } => match ctx.login(username, password, cmd, env) {
                                     Ok(_) => Response::Success,
                                     Err(e) => Response::Failure(Failure::LoginError {
                                         description: format!("{}", e),

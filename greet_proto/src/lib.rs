@@ -8,7 +8,6 @@
 //!
 //! See `agreety` for a simple example use of this library.
 
-use std::collections::HashMap;
 use std::error::Error;
 use std::io;
 
@@ -75,8 +74,8 @@ pub enum Request {
     Login {
         username: String,
         password: String,
-        command: Vec<String>,
-        env: HashMap<String, String>,
+        cmd: Vec<String>,
+        env: Vec<String>,
     },
     Shutdown {
         action: ShutdownAction,

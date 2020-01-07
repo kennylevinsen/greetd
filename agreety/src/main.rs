@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::env;
 use std::io::{self, BufRead, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -25,15 +24,14 @@ fn login(node: &str, cmd: Option<&str>) -> Result<(), Box<dyn std::error::Error>
         None => prompt_stderr("Command: ").unwrap(),
     };
 
-    let mut env = HashMap::new();
-    env.insert("XDG_SESSION_DESKTOP".to_string(), command.clone());
-    env.insert("XDG_CURRENT_DESKTOP".to_string(), command.clone());
-
     let request = Request::Login {
         username,
         password,
-        command: vec![command],
-        env,
+        env: vec![
+            format!("XDG_SESSION_DESKTOP={}", &command),
+            format!("XDG_CURRENT_DESKTOP={}", &command),
+        ],
+        cmd: vec![command],
     };
 
     // Write request

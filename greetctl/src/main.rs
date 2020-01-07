@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::env;
 use std::io::{self, BufRead, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -22,8 +21,8 @@ fn login() -> Result<(), Box<dyn std::error::Error>> {
     let request = Request::Login {
         username,
         password,
-        command: vec![command],
-        env: HashMap::new(),
+        cmd: vec![command],
+        env: vec![],
     };
 
     // Write request

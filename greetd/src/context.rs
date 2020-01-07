@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::error::Error;
 use std::ffi::CString;
 use std::io;
@@ -67,7 +66,7 @@ impl<'a> Context<'a> {
             &self.greeter_user,
             "",
             vec![self.greeter_bin.to_string()],
-            HashMap::new(),
+            vec![],
             self.vt,
         )?;
         let greeter = match pending_session.start() {
@@ -85,7 +84,7 @@ impl<'a> Context<'a> {
         username: String,
         mut password: String,
         cmd: Vec<String>,
-        provided_env: HashMap<String, String>,
+        provided_env: Vec<String>,
     ) -> Result<(), Box<dyn Error>> {
         if !self.greeter.is_some() {
             eprintln!("login request not valid when greeter is not active");
