@@ -84,6 +84,10 @@ impl<'a> PamSession<'a> {
         pam_sys::getenv(self.handle, v).is_some()
     }
 
+    pub fn getenv<'b>(&'b mut self, v: &str) -> Option<&'b str> {
+        pam_sys::getenv(self.handle, v)
+    }
+
     pub fn set_item(&mut self, item: PamItemType, value: &str) -> Result<(), Box<dyn Error>> {
         let s = CString::new(value).unwrap();
         self.last_code = PamReturnCode::from(unsafe {
