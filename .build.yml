@@ -1,6 +1,8 @@
 image: archlinux
 packages:
   - rust
+sources:
+  - https://git.sr.ht/~kennylevinsen/greetd
 tasks:
   - rustfmt-check: |
       cd greetd
