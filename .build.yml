@@ -1,0 +1,10 @@
+image: archlinux
+packages:
+  - rust
+tasks:
+  - rustfmt-check: |
+      cd greetd
+      cargo fmt -- --check
+  - build: |
+      cd greetd
+      cargo build
