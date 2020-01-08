@@ -109,7 +109,7 @@ pub struct Session<'a> {
 }
 
 fn split_env<'a>(s: &'a str) -> Option<(&'a str, &str)> {
-    let components: Vec<&str> = s.splitn(2, "=").collect();
+    let components: Vec<&str> = s.splitn(2, '=').collect();
     match components.len() {
         0 => None,
         1 => Some((components[0], "")),
@@ -192,11 +192,11 @@ impl<'a> Session<'a> {
                         None => continue,
                     };
 
-                    if key.starts_with("#") {
+                    if key.starts_with('#') {
                         continue;
                     }
 
-                    if !value.contains("$") {
+                    if !value.contains('$') {
                         env.insert(key.to_string(), value.to_string());
                         continue;
                     }
@@ -356,7 +356,7 @@ impl<'a> Session<'a> {
         self.generate_user_environment(home)?;
 
         // Extract PAM environment for use with execve below.
-        let mut pamenvlist = self
+        let pamenvlist = self
             .pam
             .getenvlist()
             .map_err(|e| format!("unable to get PAM environment: {}", e))?;

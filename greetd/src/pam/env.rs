@@ -17,7 +17,7 @@ pub fn get_pam_env(handle: &mut PamHandle) -> Option<PamEnvList> {
 }
 
 impl<'a> PamEnvList {
-    pub fn to_vec(&'a mut self) -> Vec<&'a CStr> {
+    pub fn to_vec(&'a self) -> Vec<&'a CStr> {
         let mut vec = Vec::new();
         let mut idx = 0;
         loop {

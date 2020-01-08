@@ -6,7 +6,7 @@ use nix::fcntl::{fcntl, FcntlArg, FdFlag};
 use nix::poll::PollFlags;
 
 use super::client::Client;
-use super::pollable::{PollRunResult, Pollable};
+use super::{PollRunResult, Pollable};
 use crate::context::Context;
 
 pub struct Listener {

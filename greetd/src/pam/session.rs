@@ -6,9 +6,9 @@ use std::ptr;
 
 use pam_sys::{PamFlag, PamHandle, PamItemType, PamReturnCode};
 
-use crate::pam::env::{get_pam_env, PamEnvList};
-use crate::pam::ffi::make_conversation;
-use crate::pam::PasswordConv;
+use super::converse::PasswordConv;
+use super::env::{get_pam_env, PamEnvList};
+use super::ffi::make_conversation;
 
 pub struct PamSession<'a> {
     handle: &'a mut PamHandle,

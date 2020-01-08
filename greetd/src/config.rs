@@ -123,11 +123,11 @@ pub fn read_config() -> Config {
         config.socket_path = socket_path.to_string();
     }
 
-    if config.greeter.len() == 0 {
+    if config.greeter.is_empty() {
         eprintln!("No greeter specified. Run with --help for more information.");
         std::process::exit(1);
     }
-    if config.greeter_user.len() == 0 {
+    if config.greeter_user.is_empty() {
         eprintln!("No greeter user specified. Run with --help for more information.");
         std::process::exit(1);
     }

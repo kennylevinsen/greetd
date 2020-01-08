@@ -29,12 +29,12 @@ fn get_distro_name() -> String {
                     .to_string(),
             )
         })
-        .unwrap_or("Linux".to_string())
+        .unwrap_or_else(|| "Linux".to_string())
 }
 
 fn get_issue() -> Result<String, Box<dyn std::error::Error>> {
     let vtnr: usize = env::var("XDG_VTNR")
-        .unwrap_or("0".to_string())
+        .unwrap_or_else(|_| "0".to_string())
         .parse()
         .expect("unable to parse VTNR");
     let uts = uname();

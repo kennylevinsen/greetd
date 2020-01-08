@@ -6,8 +6,8 @@ use nix::poll::PollFlags;
 use nix::sys::signal::{SigSet, Signal};
 use nix::sys::signalfd::{SfdFlags, SignalFd};
 
+use super::{PollRunResult, Pollable};
 use crate::context::Context;
-use crate::pollable::{PollRunResult, Pollable};
 
 /// Returns a set containing the signals we want to block in the main process.
 /// This is also used to unblock the same signals again before starting child

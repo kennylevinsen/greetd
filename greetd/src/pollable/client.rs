@@ -7,8 +7,8 @@ use std::os::unix::net::UnixStream;
 use nix::fcntl::{fcntl, FcntlArg, FdFlag};
 use nix::poll::PollFlags;
 
+use super::{PollRunResult, Pollable};
 use crate::context::Context;
-use crate::pollable::{PollRunResult, Pollable};
 use crate::scrambler::Scrambler;
 use greet_proto::{Failure, Header, Request, Response};
 
@@ -112,7 +112,7 @@ impl Pollable for Client {
                                 Request::Shutdown { action } => match ctx.shutdown(action) {
                                     Ok(_) => Response::Success,
                                     Err(e) => Response::Failure(Failure::ShutdownError {
-                                        action: action,
+                                        action,
                                         description: format!("{}", e),
                                     }),
                                 },

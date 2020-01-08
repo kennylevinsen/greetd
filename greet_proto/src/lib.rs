@@ -27,32 +27,26 @@ impl Header {
     }
 
     pub fn new(len: u32) -> Header {
-        Header {
-            version: 1,
-            len: len,
-        }
+        Header { version: 1, len }
     }
 
     pub fn from_slice(bytes: &[u8]) -> Result<Header, Box<dyn Error>> {
         let mut cursor = std::io::Cursor::new(bytes);
 
         let proto_magic = cursor.read_u32::<LittleEndian>()?;
-        if proto_magic != 0xAFBFCFDF {
+        if proto_magic != 0xAFBF_CFDF {
             return Err(io::Error::new(io::ErrorKind::Other, "invalid message magic").into());
         }
 
-        let proto_version = cursor.read_u32::<LittleEndian>()?;
-        let msg_len = cursor.read_u32::<LittleEndian>()?;
+        let version = cursor.read_u32::<LittleEndian>()?;
+        let len = cursor.read_u32::<LittleEndian>()?;
 
-        Ok(Header {
-            version: proto_version,
-            len: msg_len,
-        })
+        Ok(Header { version, len })
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>, Box<dyn Error>> {
         let mut buf = Vec::new();
-        buf.write_u32::<LittleEndian>(0xAFBFCFDF)?;
+        buf.write_u32::<LittleEndian>(0xAFBF_CFDF)?;
         buf.write_u32::<LittleEndian>(self.version)?;
         buf.write_u32::<LittleEndian>(self.len)?;
         Ok(buf)

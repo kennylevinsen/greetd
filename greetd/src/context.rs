@@ -22,21 +22,18 @@ pub struct Context<'a> {
 }
 
 fn run(cmd: &str) -> Result<(), Box<dyn Error>> {
-    match fork()? {
-        ForkResult::Child => {
-            let cpath = CString::new("/bin/sh").unwrap();
-            execv(
+    if let ForkResult::Child = fork()? {
+        let cpath = CString::new("/bin/sh").unwrap();
+        execv(
+            &cpath,
+            &[
                 &cpath,
-                &[
-                    &cpath,
-                    &CString::new("-c").unwrap(),
-                    &CString::new(cmd).unwrap(),
-                ],
-            )
-            .expect("unable to exec");
-            unreachable!("after exec");
-        }
-        _ => (),
+                &CString::new("-c").unwrap(),
+                &CString::new(cmd).unwrap(),
+            ],
+        )
+        .expect("unable to exec");
+        unreachable!("after exec");
     }
     Ok(())
 }
@@ -47,8 +44,8 @@ impl<'a> Context<'a> {
             session: None,
             greeter: None,
             pending_session: None,
-            greeter_bin: greeter_bin,
-            greeter_user: greeter_user,
+            greeter_bin,
+            greeter_user,
             vt,
         }
     }
@@ -86,7 +83,7 @@ impl<'a> Context<'a> {
         cmd: Vec<String>,
         provided_env: Vec<String>,
     ) -> Result<(), Box<dyn Error>> {
-        if !self.greeter.is_some() {
+        if self.greeter.is_none() {
             eprintln!("login request not valid when greeter is not active");
             return Err(io::Error::new(io::ErrorKind::Other, "greeter not active").into());
         }
@@ -116,7 +113,7 @@ impl<'a> Context<'a> {
     }
 
     pub fn shutdown(&mut self, action: ShutdownAction) -> Result<(), Box<dyn Error>> {
-        if !self.greeter.is_some() || self.session.is_some() {
+        if self.greeter.is_none() || self.session.is_some() {
             eprintln!("shutdown request not valid when greeter is not active");
             return Err(io::Error::new(io::ErrorKind::Other, "greeter not active").into());
         }
@@ -244,6 +241,6 @@ impl<'a> Context<'a> {
         if let Some(greeter) = self.greeter.take() {
             greeter.shoo();
         }
-        return Err("terminating".into());
+        Err("terminating".into())
     }
 }

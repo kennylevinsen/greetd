@@ -4,7 +4,7 @@ use std::mem;
 use libc::{c_int, c_void, calloc, free, size_t, strdup};
 use pam_sys::{PamConversation, PamMessage, PamMessageStyle, PamResponse, PamReturnCode};
 
-use crate::pam::Converse;
+use super::converse::Converse;
 
 pub fn make_conversation<C: Converse>(user_converse: &mut C) -> PamConversation {
     PamConversation {
