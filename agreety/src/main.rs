@@ -1,7 +1,7 @@
 use std::env;
+use std::fs;
 use std::io::{self, BufRead, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::fs;
 
 use clap::{crate_authors, crate_version, App, Arg};
 use ini::Ini;
@@ -121,7 +121,6 @@ fn main() {
             std::process::exit(1)
         }
     };
-
 
     if let Ok(issue) = get_issue() {
         print!("{}", issue);

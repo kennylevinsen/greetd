@@ -113,7 +113,8 @@ impl Terminal {
             if let Err(v) = unsafe { ioctl::vt_setactivate(self.file.as_raw_fd(), &arg) } {
                 return Err(format!("terminal: unable to setactivate: {}", v).into());
             }
-            if let Err(v) = unsafe { ioctl::vt_waitactive(self.file.as_raw_fd(), target_vt as i32) } {
+            if let Err(v) = unsafe { ioctl::vt_waitactive(self.file.as_raw_fd(), target_vt as i32) }
+            {
                 return Err(format!("terminal: unable to wait for activation: {}", v).into());
             }
         } else {
@@ -130,7 +131,9 @@ impl Terminal {
             v_signal: 0,
             v_state: 0,
         };
-        let res = unsafe { ioctl::vt_getstate(self.file.as_raw_fd(), &mut state as *mut ioctl::vt_state) };
+        let res = unsafe {
+            ioctl::vt_getstate(self.file.as_raw_fd(), &mut state as *mut ioctl::vt_state)
+        };
 
         if let Err(v) = res {
             Err(format!("terminal: unable to get current vt: {}", v).into())
