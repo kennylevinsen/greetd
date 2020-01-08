@@ -1,9 +1,12 @@
+use std::collections::HashMap;
 use std::env;
 use std::error::Error;
 use std::ffi::CString;
+use std::fs;
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::os::unix::io::{FromRawFd, RawFd};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -105,6 +108,16 @@ pub struct Session<'a> {
     cmd: Vec<String>,
 }
 
+fn split_env<'a>(s: &'a str) -> Option<(&'a str, &str)> {
+    let components: Vec<&str> = s.splitn(2, "=").collect();
+    match components.len() {
+        0 => None,
+        1 => Some((components[0], "")),
+        2 => Some((components[0], components[1])),
+        _ => panic!("splitn returned more values than requested"),
+    }
+}
+
 impl<'a> Session<'a> {
     ///
     /// Create a Session object with details required to start the specified
@@ -142,6 +155,80 @@ impl<'a> Session<'a> {
             vt,
             cmd,
         })
+    }
+
+    /// Process environment.d folders to generate the configured environment for
+    /// the session.
+    fn generate_user_environment(&mut self, home: String) -> Result<(), Box<dyn Error>> {
+        let dirs = [
+            "/usr/lib/environments.d/",
+            "/usr/local/lib/environments.d/",
+            "/run/environments.d/",
+            "/etc/environments.d/",
+            &format!("{}/.config/environment.d", home),
+        ];
+
+        let mut env: HashMap<String, String> = HashMap::new();
+        for dir in dirs.iter() {
+            let entries = match fs::read_dir(dir) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            let mut filepaths: Vec<PathBuf> =
+                entries.filter_map(Result::ok).map(|e| e.path()).collect();
+
+            filepaths.sort();
+
+            for filepath in filepaths.into_iter() {
+                let reader = BufReader::new(match File::open(&filepath) {
+                    Ok(f) => f,
+                    Err(_) => continue,
+                });
+
+                for line in reader.lines().filter_map(Result::ok) {
+                    let (key, value) = match split_env(&line) {
+                        Some(v) => v,
+                        None => continue,
+                    };
+
+                    if key.starts_with("#") {
+                        continue;
+                    }
+
+                    if !value.contains("$") {
+                        env.insert(key.to_string(), value.to_string());
+                        continue;
+                    }
+
+                    let reference = &value[1..];
+                    let value = match env.get(reference) {
+                        Some(v) => v.to_string(),
+                        None => match self.pam.getenv(reference) {
+                            Some(pam_val) => match split_env(pam_val) {
+                                Some((_, new_value)) => new_value.to_string(),
+                                None => "".to_string(),
+                            },
+                            None => "".to_string(),
+                        },
+                    };
+
+                    env.insert(key.to_string(), value);
+                }
+            }
+        }
+
+        let env = env
+            .into_iter()
+            .map(|(key, value)| format!("{}={}", key, value));
+
+        for e in env {
+            self.pam
+                .putenv(&e)
+                .map_err(|e| format!("unable to set PAM environment: {}", e))?;
+        }
+
+        Ok(())
     }
 
     /// The entry point for the session worker process. The session worker is
@@ -262,6 +349,11 @@ impl<'a> Session<'a> {
                 .putenv(&e)
                 .map_err(|e| format!("unable to set PAM environment: {}", e))?;
         }
+
+        // We're almost done with our environment. Let's go through
+        // environment.d configuration to fix up the last bits.
+        let home = home.to_string();
+        self.generate_user_environment(home)?;
 
         // Extract PAM environment for use with execve below.
         let mut pamenvlist = self
