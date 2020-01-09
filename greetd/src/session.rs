@@ -10,7 +10,6 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use libc::pid_t;
 use nix::fcntl::{fcntl, FcntlArg};
 use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
@@ -471,7 +470,7 @@ impl<'a> Session<'a> {
         let raw_pid = f
             .read_u64::<LittleEndian>()
             .map_err(|_| "worker process terminated".to_string())?;
-        let sub_task = Pid::from_raw(raw_pid as pid_t);
+        let sub_task = Pid::from_raw(raw_pid as i32);
         drop(f);
 
         Ok(SessionChild {
