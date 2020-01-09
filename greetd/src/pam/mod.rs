@@ -1,4 +1,4 @@
-mod converse;
+pub mod converse;
 mod env;
 mod ffi;
 pub mod session;

@@ -31,35 +31,28 @@ pub extern "C" fn converse<C: Converse>(
 
     let mut result: PamReturnCode = PamReturnCode::SUCCESS;
     for i in 0..num_msg as isize {
-        unsafe {
-            // get indexed values
-            let m: &mut PamMessage = &mut **(msg.offset(i));
-            let r: &mut PamResponse = &mut *(resp.offset(i));
-            let msg = CStr::from_ptr(m.msg);
-            // match on msg_style
-            match PamMessageStyle::from(m.msg_style) {
-                PamMessageStyle::PROMPT_ECHO_ON => {
-                    if let Ok(handler_response) = handler.prompt_echo(msg) {
-                        r.resp = strdup(handler_response.as_ptr());
-                    } else {
-                        result = PamReturnCode::CONV_ERR;
-                    }
-                }
-                PamMessageStyle::PROMPT_ECHO_OFF => {
-                    if let Ok(handler_response) = handler.prompt_blind(msg) {
-                        r.resp = strdup(handler_response.as_ptr());
-                    } else {
-                        result = PamReturnCode::CONV_ERR;
-                    }
-                }
-                PamMessageStyle::ERROR_MSG => {
-                    handler.error(msg);
+        // get indexed values
+        let m: &mut PamMessage = unsafe { &mut **(msg.offset(i)) };
+        let r: &mut PamResponse = unsafe { &mut *(resp.offset(i)) };
+        let msg = unsafe { CStr::from_ptr(m.msg) };
+        // match on msg_style
+        match PamMessageStyle::from(m.msg_style) {
+            PamMessageStyle::PROMPT_ECHO_ON => {
+                if let Ok(handler_response) = handler.prompt_echo(msg) {
+                    r.resp = unsafe { strdup(handler_response.as_ptr()) };
+                } else {
                     result = PamReturnCode::CONV_ERR;
                 }
-                PamMessageStyle::TEXT_INFO => {
-                    handler.info(msg);
+            }
+            PamMessageStyle::PROMPT_ECHO_OFF => {
+                if let Ok(handler_response) = handler.prompt_blind(msg) {
+                    r.resp = unsafe { strdup(handler_response.as_ptr()) };
+                } else {
+                    result = PamReturnCode::CONV_ERR;
                 }
             }
+            PamMessageStyle::ERROR_MSG => handler.error(msg),
+            PamMessageStyle::TEXT_INFO => handler.info(msg),
         }
         if result != PamReturnCode::SUCCESS {
             break;
@@ -68,6 +61,16 @@ pub extern "C" fn converse<C: Converse>(
 
     // free allocated memory if an error occured
     if result != PamReturnCode::SUCCESS {
+
+        // Free any strdup'd response strings
+        for i in 0..num_msg as isize {
+            let r: &mut PamResponse = unsafe { &mut *(resp.offset(i)) };
+            if !r.resp.is_null() {
+                unsafe { free(r.resp as *mut c_void) };
+            }
+        }
+
+        // Free the response array
         unsafe { free(resp as *mut c_void) };
     } else {
         unsafe { *out_resp = resp };

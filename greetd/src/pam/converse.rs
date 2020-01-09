@@ -15,21 +15,16 @@ pub trait Converse {
     ///
     /// This would typically be the username. The exact question is provided as the
     /// `msg` argument if you wish to display it to your user.
-    fn prompt_echo(&mut self, msg: &CStr) -> ::std::result::Result<CString, ()>;
+    fn prompt_echo<'a>(&'a mut self, msg: &CStr) -> ::std::result::Result<&'a CStr, ()>;
     /// PAM requests a value that should be typed blindly by the user
     ///
     /// This would typically be the password. The exact question is provided as the
     /// `msg` argument if you wish to display it to your user.
-    fn prompt_blind(&mut self, msg: &CStr) -> ::std::result::Result<CString, ()>;
+    fn prompt_blind<'a>(&'a mut self, msg: &CStr) -> ::std::result::Result<&'a CStr, ()>;
     /// This is an informational message from PAM
     fn info(&mut self, msg: &CStr);
     /// This is an error message from PAM
     fn error(&mut self, msg: &CStr);
-    /// Get the username that is being authenticated
-    ///
-    /// This method is not a PAM callback, but is rather used by the `Authenticator` to
-    /// setup the environment when opening a session.
-    fn username(&self) -> &str;
 }
 
 /// A minimalistic conversation handler, that uses given login and password
@@ -37,38 +32,29 @@ pub trait Converse {
 /// This conversation handler is not really interactive, but simply returns to
 /// PAM the value that have been set using the `set_credentials` method.
 pub struct PasswordConv {
-    login: String,
-    passwd: String,
+    login: CString,
+    passwd: CString,
 }
 
 impl PasswordConv {
     /// Create a new `PasswordConv` handler
-    pub fn new() -> PasswordConv {
+    pub fn new(login: &str, password: &str) -> PasswordConv {
         PasswordConv {
-            login: String::new(),
-            passwd: String::new(),
+            login: CString::new(login).unwrap(),
+            passwd: CString::new(password).unwrap(),
         }
-    }
-
-    /// Set the credentials that this handler will provide to PAM
-    pub fn set_credentials<U: Into<String>, V: Into<String>>(&mut self, login: U, password: V) {
-        self.login = login.into();
-        self.passwd = password.into();
     }
 }
 
 impl Converse for PasswordConv {
-    fn prompt_echo(&mut self, _msg: &CStr) -> Result<CString, ()> {
-        CString::new(self.login.clone()).map_err(|_| ())
+    fn prompt_echo<'a>(&'a mut self, _msg: &CStr) -> Result<&'a CStr, ()> {
+        Ok(&self.login)
     }
-    fn prompt_blind(&mut self, _msg: &CStr) -> Result<CString, ()> {
-        CString::new(self.passwd.clone()).map_err(|_| ())
+    fn prompt_blind<'a>(&'a mut self, _msg: &CStr) -> Result<&'a CStr, ()> {
+        Ok(&self.passwd)
     }
     fn info(&mut self, _msg: &CStr) {}
     fn error(&mut self, msg: &CStr) {
         eprintln!("[PAM ERROR] {}", msg.to_string_lossy());
-    }
-    fn username(&self) -> &str {
-        &self.login
     }
 }

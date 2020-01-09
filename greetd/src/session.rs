@@ -21,6 +21,7 @@ use users::os::unix::UserExt;
 use users::User;
 
 use crate::pam::session::PamSession;
+use crate::pam::converse::PasswordConv;
 use crate::pollable::signals::blocked_sigset;
 use crate::terminal;
 
@@ -135,8 +136,8 @@ impl<'a> Session<'a> {
         provided_env: Vec<String>,
         vt: usize,
     ) -> Result<Session<'a>, Box<dyn Error>> {
-        let mut pam_session = PamSession::start(service)?;
-        pam_session.converse.set_credentials(username, password);
+        let pass_conv = Box::new(PasswordConv::new(username, password));
+        let mut pam_session = PamSession::start(service, pass_conv)?;
         pam_session.authenticate(PamFlag::NONE)?;
         pam_session.acct_mgmt(PamFlag::NONE)?;
 

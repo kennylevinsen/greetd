@@ -17,8 +17,7 @@ pub struct PamSession<'a> {
 }
 
 impl<'a> PamSession<'a> {
-    pub fn start(service: &str) -> Result<PamSession, Box<dyn Error>> {
-        let mut pam_conv = Box::new(PasswordConv::new());
+    pub fn start(service: &str, mut pam_conv: Box<PasswordConv>) -> Result<PamSession, Box<dyn Error>> {
         let conv = make_conversation(&mut *pam_conv);
         let mut pam_handle: *mut PamHandle = ptr::null_mut();
 
