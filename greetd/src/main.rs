@@ -1,9 +1,3 @@
-use std::env;
-use std::fs::remove_file;
-
-use nix::poll::{poll, PollFd};
-use nix::unistd::chown;
-
 mod config;
 mod context;
 mod pam;
@@ -12,40 +6,57 @@ mod scrambler;
 mod session;
 mod terminal;
 
+use std::error::Error;
+
+use nix::poll::{poll, PollFd};
+use nix::unistd::{chown, Gid, Uid};
+
+use config::VtSelection;
+use context::Context;
+use pollable::{Listener, PollRunResult, Pollable, Signals};
+use terminal::Terminal;
+
+fn reset_vt(vt: usize) -> Result<(), Box<dyn Error>> {
+    let term = Terminal::open(vt)?;
+    term.kd_setmode(terminal::KdMode::Text)?;
+    term.vt_setactivate(vt)?;
+    Ok(())
+}
+
 fn main() {
     let config = config::read_config();
 
     eprintln!("starting greetd");
 
-    env::set_var("GREETD_SOCK", &config.socket_path);
+    std::env::set_var("GREETD_SOCK", &config.socket_path);
 
-    let _ = remove_file(config.socket_path.clone());
-    let listener = pollable::Listener::new(&config.socket_path).expect("unable to create listener");
+    let _ = std::fs::remove_file(config.socket_path.clone());
+    let listener = Listener::new(&config.socket_path).expect("unable to create listener");
 
     let u = users::get_user_by_name(&config.greeter_user).expect("unable to get user struct");
-    let uid = nix::unistd::Uid::from_raw(u.uid());
-    let gid = nix::unistd::Gid::from_raw(u.primary_group_id());
+    let uid = Uid::from_raw(u.uid());
+    let gid = Gid::from_raw(u.primary_group_id());
     chown(config.socket_path.as_str(), Some(uid), Some(gid))
         .expect("unable to chown greetd socket");
 
-    let signals = pollable::Signals::new().expect("unable to create signalfd");
+    let signals = Signals::new().expect("unable to create signalfd");
 
-    let term = terminal::Terminal::open(0).expect("unable to open controlling terminal");
+    let term = Terminal::open(0).expect("unable to open controlling terminal");
     let vt = match config.vt() {
-        config::VtSelection::Current => term.vt_get_current().expect("unable to get current VT"),
-        config::VtSelection::Next => term.vt_get_next().expect("unable to get next VT"),
-        config::VtSelection::Specific(v) => v,
+        VtSelection::Current => term.vt_get_current().expect("unable to get current VT"),
+        VtSelection::Next => term.vt_get_next().expect("unable to get next VT"),
+        VtSelection::Specific(v) => v,
     };
     drop(term);
 
-    let mut ctx = context::Context::new(config.greeter, config.greeter_user, vt);
+    let mut ctx = Context::new(config.greeter, config.greeter_user, vt);
     if let Err(e) = ctx.greet() {
         eprintln!("unable to start greeter: {}", e);
+        reset_vt(vt).expect("unable to reset vt");
         std::process::exit(1);
     }
 
-    let mut pollables: Vec<Box<dyn pollable::Pollable>> =
-        vec![Box::new(listener), Box::new(signals)];
+    let mut pollables: Vec<Box<dyn Pollable>> = vec![Box::new(listener), Box::new(signals)];
 
     let mut fds: Vec<PollFd> = Vec::new();
     let mut fds_changed = true;
@@ -61,7 +72,7 @@ fn main() {
 
         if let Err(e) = poll(&mut fds, -1) {
             eprintln!("poll failed: {}", e);
-            terminal::restore(vt).expect("unable to reset vt");
+            reset_vt(vt).expect("unable to reset vt");
             std::process::exit(1);
         }
 
@@ -71,14 +82,14 @@ fn main() {
                 let pollable = &mut pollables[(idx as isize + idx_compensation) as usize];
                 if revents.intersects(pollable.poll_flags()) {
                     match pollable.run(&mut ctx) {
-                        Ok(pollable::PollRunResult::Uneventful) => (),
-                        Ok(pollable::PollRunResult::NewPollable(p)) => {
+                        Ok(PollRunResult::Uneventful) => (),
+                        Ok(PollRunResult::NewPollable(p)) => {
                             // New pollables are pushed at the end, so they do
                             // not require index compensation.
                             pollables.push(p);
                             fds_changed = true;
                         }
-                        Ok(pollable::PollRunResult::Dead) => {
+                        Ok(PollRunResult::Dead) => {
                             // We remove a pollable at the current index, so
                             // compensate the index of future accesses.
                             idx_compensation -= 1;
@@ -87,7 +98,7 @@ fn main() {
                         }
                         Err(e) => {
                             eprintln!("task failed: {}", e);
-                            terminal::restore(vt).expect("unable to reset vt");
+                            reset_vt(vt).expect("unable to reset vt");
                             std::process::exit(1);
                         }
                     }

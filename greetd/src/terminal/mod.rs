@@ -22,15 +22,6 @@ impl KdMode {
     }
 }
 
-/// Attempt to return the user to the specified VT in a sensible state.
-pub fn restore(terminal: usize) -> Result<(), Box<dyn Error>> {
-    let tty_0 = Terminal::open(0)?;
-    let tty_x = Terminal::open(terminal)?;
-    tty_x.kd_setmode(KdMode::Text)?;
-    tty_0.vt_setactivate(terminal)?;
-    Ok(())
-}
-
 pub struct Terminal {
     // Note: This will close our fd when we're dropped.
     file: File,
