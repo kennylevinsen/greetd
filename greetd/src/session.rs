@@ -20,8 +20,8 @@ use pam_sys::{PamFlag, PamItemType};
 use users::os::unix::UserExt;
 use users::User;
 
-use crate::pam::session::PamSession;
 use crate::pam::converse::PasswordConv;
+use crate::pam::session::PamSession;
 use crate::pollable::signals::blocked_sigset;
 use crate::terminal;
 

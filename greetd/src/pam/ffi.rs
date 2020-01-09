@@ -6,14 +6,18 @@ use pam_sys::{PamConversation, PamMessage, PamMessageStyle, PamResponse, PamRetu
 
 use super::converse::Converse;
 
-pub fn make_conversation<C: Converse>(user_converse: &mut C) -> PamConversation {
+pub struct PamConvHandlerWrapper {
+    pub handler: Box<dyn Converse>,
+}
+
+pub fn make_conversation(conv: &mut PamConvHandlerWrapper) -> PamConversation {
     PamConversation {
-        conv: Some(converse::<C>),
-        data_ptr: user_converse as *mut C as *mut c_void,
+        conv: Some(converse),
+        data_ptr: conv as *mut PamConvHandlerWrapper as *mut c_void,
     }
 }
 
-pub extern "C" fn converse<C: Converse>(
+pub extern "C" fn converse(
     num_msg: c_int,
     msg: *mut *mut PamMessage,
     out_resp: *mut *mut PamResponse,
@@ -27,7 +31,7 @@ pub extern "C" fn converse<C: Converse>(
         return PamReturnCode::BUF_ERR as c_int;
     }
 
-    let handler = unsafe { &mut *(appdata_ptr as *mut C) };
+    let wrapper = unsafe { &mut *(appdata_ptr as *mut PamConvHandlerWrapper) };
 
     let mut result: PamReturnCode = PamReturnCode::SUCCESS;
     for i in 0..num_msg as isize {
@@ -38,21 +42,21 @@ pub extern "C" fn converse<C: Converse>(
         // match on msg_style
         match PamMessageStyle::from(m.msg_style) {
             PamMessageStyle::PROMPT_ECHO_ON => {
-                if let Ok(handler_response) = handler.prompt_echo(msg) {
+                if let Ok(handler_response) = wrapper.handler.prompt_echo(msg) {
                     r.resp = unsafe { strdup(handler_response.as_ptr()) };
                 } else {
                     result = PamReturnCode::CONV_ERR;
                 }
             }
             PamMessageStyle::PROMPT_ECHO_OFF => {
-                if let Ok(handler_response) = handler.prompt_blind(msg) {
+                if let Ok(handler_response) = wrapper.handler.prompt_blind(msg) {
                     r.resp = unsafe { strdup(handler_response.as_ptr()) };
                 } else {
                     result = PamReturnCode::CONV_ERR;
                 }
             }
-            PamMessageStyle::ERROR_MSG => handler.error(msg),
-            PamMessageStyle::TEXT_INFO => handler.info(msg),
+            PamMessageStyle::ERROR_MSG => wrapper.handler.error(msg),
+            PamMessageStyle::TEXT_INFO => wrapper.handler.info(msg),
         }
         if result != PamReturnCode::SUCCESS {
             break;
@@ -61,7 +65,6 @@ pub extern "C" fn converse<C: Converse>(
 
     // free allocated memory if an error occured
     if result != PamReturnCode::SUCCESS {
-
         // Free any strdup'd response strings
         for i in 0..num_msg as isize {
             let r: &mut PamResponse = unsafe { &mut *(resp.offset(i)) };

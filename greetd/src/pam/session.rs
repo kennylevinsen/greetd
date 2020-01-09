@@ -6,25 +6,26 @@ use std::ptr;
 use libc::c_void;
 use pam_sys::{PamFlag, PamHandle, PamItemType, PamReturnCode};
 
-use super::converse::PasswordConv;
+use super::converse::Converse;
 use super::env::{get_pam_env, PamEnvList};
-use super::ffi::make_conversation;
+use super::ffi::{make_conversation, PamConvHandlerWrapper};
 
 pub struct PamSession<'a> {
     handle: &'a mut PamHandle,
-    pub converse: Box<PasswordConv>,
+    pub converse: Box<PamConvHandlerWrapper>,
     last_code: PamReturnCode,
 }
 
 impl<'a> PamSession<'a> {
-    pub fn start(service: &str, mut pam_conv: Box<PasswordConv>) -> Result<PamSession, Box<dyn Error>> {
-        let conv = make_conversation(&mut *pam_conv);
+    pub fn start(service: &str, pam_conv: Box<dyn Converse>) -> Result<PamSession, Box<dyn Error>> {
+        let mut pch = Box::new(PamConvHandlerWrapper { handler: pam_conv });
+        let conv = make_conversation(&mut *pch);
         let mut pam_handle: *mut PamHandle = ptr::null_mut();
 
         match pam_sys::start(service, None, &conv, &mut pam_handle) {
             PamReturnCode::SUCCESS => Ok(PamSession {
                 handle: unsafe { &mut *pam_handle },
-                converse: pam_conv,
+                converse: pch,
                 last_code: PamReturnCode::SUCCESS,
             }),
             _ => Err(io::Error::new(io::ErrorKind::Other, "unable to start pam session").into()),
