@@ -1,9 +1,9 @@
 use std::error::Error;
-use std::ffi::c_void;
 use std::ffi::{CStr, CString};
 use std::io;
 use std::ptr;
 
+use libc::c_void;
 use pam_sys::{PamFlag, PamHandle, PamItemType, PamReturnCode};
 
 use super::converse::PasswordConv;
