@@ -45,7 +45,8 @@ fn get_issue() -> Result<String, Box<dyn std::error::Error>> {
         .replace("\\r", &uts.release())
         .replace("\\v", &uts.version())
         .replace("\\n", &uts.nodename())
-        .replace("\\m", &uts.machine()))
+        .replace("\\m", &uts.machine())
+        .replace("\\\\", "\\"))
 }
 
 fn login(node: &str, cmd: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
