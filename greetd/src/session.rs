@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use nix::fcntl::{fcntl, FcntlArg};
-use nix::sys::signal::Signal;
+use nix::sys::signal::{SigSet, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{
     close, execve, fork, initgroups, pipe, setgid, setsid, setuid, ForkResult, Gid, Pid, Uid,
@@ -22,8 +22,18 @@ use users::User;
 
 use crate::pam::converse::PasswordConv;
 use crate::pam::session::PamSession;
-use crate::pollable::signals::blocked_sigset;
 use crate::terminal;
+
+/// Returns a set containing the signals we want to block in the main process.
+/// This is also used to unblock the same signals again before starting child
+/// processes.
+pub fn blocked_sigset() -> SigSet {
+    let mut mask = SigSet::empty();
+    mask.add(Signal::SIGALRM);
+    mask.add(Signal::SIGTERM);
+    mask.add(Signal::SIGCHLD);
+    mask
+}
 
 fn dup_fd_cloexec(fd: RawFd) -> Result<RawFd, Box<dyn Error>> {
     match fcntl(fd, FcntlArg::F_DUPFD_CLOEXEC(0)) {
