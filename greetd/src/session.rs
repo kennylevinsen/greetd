@@ -6,7 +6,7 @@ use std::{
     fs,
     fs::File,
     io::{BufRead, BufReader, Write},
-    os::unix::io::{FromRawFd, AsRawFd, RawFd},
+    os::unix::io::{AsRawFd, FromRawFd, RawFd},
     path::PathBuf,
     time::{Duration, Instant},
 };
@@ -17,22 +17,13 @@ use nix::{
         signal::{SigSet, Signal},
         wait::{waitpid, WaitPidFlag, WaitStatus},
     },
-    unistd::{
-        close, execve, fork, initgroups, setgid, setsid, setuid, ForkResult, Gid, Pid, Uid,
-    },
+    unistd::{close, execve, fork, initgroups, setgid, setsid, setuid, ForkResult, Gid, Pid, Uid},
 };
-use users::{
-    os::unix::UserExt,
-    User,
-};
-use serde::{Deserialize, Serialize};
 use pam_sys::{PamFlag, PamItemType};
+use serde::{Deserialize, Serialize};
+use users::{os::unix::UserExt, User};
 
-use crate::{
-    pam::converse::PasswordConv,
-    pam::session::PamSession,
-    terminal,
-};
+use crate::{pam::converse::PasswordConv, pam::session::PamSession, terminal};
 
 #[derive(Debug, Serialize, Deserialize)]
 enum PamQuestionStyle {
@@ -44,13 +35,8 @@ enum PamQuestionStyle {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum ParentToSessionChild {
-    InitiateLogin {
-        username: String,
-    },
-    PamResponse {
-        resp: String,
-        code: i32,
-    },
+    InitiateLogin { username: String },
+    PamResponse { resp: String, code: i32 },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -63,7 +49,7 @@ enum SessionChildToParent {
     LoginFinalized {
         success: bool,
         error_msg: String,
-    }
+    },
 }
 
 /// Returns a set containing the signals we want to block in the main process.
@@ -286,7 +272,10 @@ impl<'a> Session<'a> {
     /// The entry point for the session worker process. The session worker is
     /// responsible for the entirety of the session setup and execution. It is
     /// started by Session::start.
-    fn session_worker(&mut self, childfd: std::os::unix::net::UnixDatagram) -> Result<(), Box<dyn Error>> {
+    fn session_worker(
+        &mut self,
+        childfd: std::os::unix::net::UnixDatagram,
+    ) -> Result<(), Box<dyn Error>> {
         // Clear the signal masking that was inherited from the parent.
         blocked_sigset()
             .thread_unblock()
@@ -451,8 +440,9 @@ impl<'a> Session<'a> {
         let msg = SessionChildToParent::FinalChildPid(child.as_raw() as u64);
         let data = serde_json::to_vec(&msg)?;
         eprintln!("sending: {:?}\n", data);
-        childfd.send(&data)
-                .map_err(|e| format!("unable to send message: {}", e))?;
+        childfd
+            .send(&data)
+            .map_err(|e| format!("unable to send message: {}", e))?;
         // close(childfd.as_raw_fd())
         //         .map_err(|e| format!("unable to close pipe: {}", e))?;
 
@@ -488,7 +478,8 @@ impl<'a> Session<'a> {
     ///
     pub async fn start(&mut self) -> Result<SessionChild, Box<dyn Error>> {
         // Pipe used to communicate the true PID of the final child.
-        let (parentfd, childfd) = std::os::unix::net::UnixDatagram::pair().map_err(|e| format!("could not create pipe: {}", e))?;
+        let (parentfd, childfd) = std::os::unix::net::UnixDatagram::pair()
+            .map_err(|e| format!("could not create pipe: {}", e))?;
 
         // PAM requires for unfathmoable reasons that we run this in a
         // subprocess. Things seem to fail otherwise.

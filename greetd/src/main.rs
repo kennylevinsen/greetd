@@ -5,16 +5,9 @@ mod scrambler;
 mod session;
 mod terminal;
 
-use std::{
-    cell::RefCell,
-    error::Error,
-    io,
-    rc::Rc,
-};
+use std::{cell::RefCell, error::Error, io, rc::Rc};
 
-use nix::{
-    unistd::{chown, Gid, Uid},
-};
+use nix::unistd::{chown, Gid, Uid};
 
 use tokio::{
     net::{UnixListener, UnixStream},
@@ -26,12 +19,7 @@ use tokio::{
 
 use greet_proto::{Failure, Header, Request, Response};
 
-use crate::{
-    scrambler::Scrambler,
-    config::VtSelection,
-    context::Context,
-    terminal::Terminal,
-};
+use crate::{config::VtSelection, context::Context, scrambler::Scrambler, terminal::Terminal};
 
 fn reset_vt(vt: usize) -> Result<(), Box<dyn Error>> {
     let term = Terminal::open(vt)?;
@@ -79,10 +67,12 @@ async fn client(ctx: Rc<RefCell<Context<'_>>>, mut s: UnixStream) -> Result<(), 
             },
         };
 
-        let resp_bytes = resp.to_bytes()
+        let resp_bytes = resp
+            .to_bytes()
             .map_err(|e| format!("unable to serialize response: {}", e))?;
         let header = Header::new(resp_bytes.len() as u32);
-        let header_bytes = header.to_bytes()
+        let header_bytes = header
+            .to_bytes()
             .map_err(|e| format!("unable to serialize header: {}", e))?;
 
         s.write_all(&header_bytes).await?;
@@ -136,7 +126,8 @@ async fn main() {
                     alarm.recv().await;
                     alarm_ctx
                         .borrow_mut()
-                        .alarm().await
+                        .alarm()
+                        .await
                         .expect("unable to read alarm");
                 }
             });
@@ -148,7 +139,8 @@ async fn main() {
                     child.recv().await;
                     child_ctx
                         .borrow_mut()
-                        .check_children().await
+                        .check_children()
+                        .await
                         .expect("unable to check children");
                 }
             });
