@@ -51,7 +51,7 @@ impl<'a> Context<'a> {
     }
 
     /// Start a greeter session.
-    pub fn greet(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn greet(&mut self) -> Result<(), Box<dyn Error>> {
         if self.greeter.is_some() {
             eprintln!("greeter session already active");
             return Err(io::Error::new(io::ErrorKind::Other, "greeter already active").into());
@@ -66,7 +66,7 @@ impl<'a> Context<'a> {
             vec![],
             self.vt,
         )?;
-        let greeter = match pending_session.start() {
+        let greeter = match pending_session.start().await {
             Ok(s) => s,
             Err(e) => return Err(format!("session start failed: {}", e).into()),
         };
@@ -131,7 +131,7 @@ impl<'a> Context<'a> {
     }
 
     /// Notify the Context of an alarm.
-    pub fn alarm(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn alarm(&mut self) -> Result<(), Box<dyn Error>> {
         // Keep trying to terminate the greeter until it gives up.
         if let Some(mut p) = self.pending_session.take() {
             if let Some(g) = self.greeter.take() {
@@ -148,7 +148,7 @@ impl<'a> Context<'a> {
                 return Ok(());
             }
 
-            let s = match p.start() {
+            let s = match p.start().await {
                 Ok(s) => s,
                 Err(e) => return Err(format!("session start failed: {}", e).into()),
             };
@@ -161,7 +161,7 @@ impl<'a> Context<'a> {
 
     /// Notify the Context that it needs to check its children for termination.
     /// This should be called on SIGCHLD.
-    pub fn check_children(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn check_children(&mut self) -> Result<(), Box<dyn Error>> {
         loop {
             match waitpid(None, Some(WaitPidFlag::WNOHANG)) {
                 // No pending exits.
@@ -181,7 +181,7 @@ impl<'a> Context<'a> {
                             }
                             self.session = None;
                             eprintln!("session exited");
-                            if let Err(e) = self.greet() {
+                            if let Err(e) = self.greet().await {
                                 return Err(
                                     format!("session start failed for greeter: {}", e).into()
                                 );
@@ -197,7 +197,7 @@ impl<'a> Context<'a> {
                                     eprintln!("starting pending session");
                                     // Our greeter finally bit the dust so we can
                                     // start our pending session.
-                                    let s = match pending_session.start() {
+                                    let s = match pending_session.start().await {
                                         Ok(s) => s,
                                         Err(e) => {
                                             return Err(

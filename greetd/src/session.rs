@@ -1,28 +1,70 @@
-use std::collections::HashMap;
-use std::env;
-use std::error::Error;
-use std::ffi::CString;
-use std::fs;
-use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::io::{FromRawFd, RawFd};
-use std::path::PathBuf;
-use std::time::{Duration, Instant};
-
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use nix::fcntl::{fcntl, FcntlArg};
-use nix::sys::signal::{SigSet, Signal};
-use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::unistd::{
-    close, execve, fork, initgroups, pipe, setgid, setsid, setuid, ForkResult, Gid, Pid, Uid,
+use std::{
+    collections::HashMap,
+    env,
+    error::Error,
+    ffi::CString,
+    fs,
+    fs::File,
+    io::{BufRead, BufReader, Write},
+    os::unix::io::{FromRawFd, AsRawFd, RawFd},
+    path::PathBuf,
+    time::{Duration, Instant},
 };
-use pam_sys::{PamFlag, PamItemType};
-use users::os::unix::UserExt;
-use users::User;
 
-use crate::pam::converse::PasswordConv;
-use crate::pam::session::PamSession;
-use crate::terminal;
+use nix::{
+    fcntl::{fcntl, FcntlArg},
+    sys::{
+        signal::{SigSet, Signal},
+        wait::{waitpid, WaitPidFlag, WaitStatus},
+    },
+    unistd::{
+        close, execve, fork, initgroups, setgid, setsid, setuid, ForkResult, Gid, Pid, Uid,
+    },
+};
+use users::{
+    os::unix::UserExt,
+    User,
+};
+use serde::{Deserialize, Serialize};
+use pam_sys::{PamFlag, PamItemType};
+
+use crate::{
+    pam::converse::PasswordConv,
+    pam::session::PamSession,
+    terminal,
+};
+
+#[derive(Debug, Serialize, Deserialize)]
+enum PamQuestionStyle {
+    PromptEchoOff,
+    PromptEchoOn,
+    ErrorMsg,
+    TextInfo,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+enum ParentToSessionChild {
+    InitiateLogin {
+        username: String,
+    },
+    PamResponse {
+        resp: String,
+        code: i32,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+enum SessionChildToParent {
+    FinalChildPid(u64),
+    PamMessage {
+        style: PamQuestionStyle,
+        msg: String,
+    },
+    LoginFinalized {
+        success: bool,
+        error_msg: String,
+    }
+}
 
 /// Returns a set containing the signals we want to block in the main process.
 /// This is also used to unblock the same signals again before starting child
@@ -244,7 +286,7 @@ impl<'a> Session<'a> {
     /// The entry point for the session worker process. The session worker is
     /// responsible for the entirety of the session setup and execution. It is
     /// started by Session::start.
-    fn session_worker(&mut self, childfd: RawFd) -> Result<(), Box<dyn Error>> {
+    fn session_worker(&mut self, childfd: std::os::unix::net::UnixDatagram) -> Result<(), Box<dyn Error>> {
         // Clear the signal masking that was inherited from the parent.
         blocked_sigset()
             .thread_unblock()
@@ -388,7 +430,7 @@ impl<'a> Session<'a> {
                 setuid(uid).expect("unable to set UID");
 
                 // Run
-                close(childfd).expect("unable to close pipe");
+                close(childfd.as_raw_fd()).expect("unable to close pipe");
                 let cpath = CString::new("/bin/sh").unwrap();
                 execve(
                     &cpath,
@@ -406,9 +448,13 @@ impl<'a> Session<'a> {
         };
 
         // Signal the inner PID to the parent process.
-        let mut f = unsafe { File::from_raw_fd(childfd) };
-        f.write_u64::<LittleEndian>(child.as_raw() as u64)?;
-        drop(f);
+        let msg = SessionChildToParent::FinalChildPid(child.as_raw() as u64);
+        let data = serde_json::to_vec(&msg)?;
+        eprintln!("sending: {:?}\n", data);
+        childfd.send(&data)
+                .map_err(|e| format!("unable to send message: {}", e))?;
+        // close(childfd.as_raw_fd())
+        //         .map_err(|e| format!("unable to close pipe: {}", e))?;
 
         // Wait for process to terminate, handling EINTR as necessary.
         loop {
@@ -440,15 +486,15 @@ impl<'a> Session<'a> {
     ///
     /// Start the session described within the Session.
     ///
-    pub fn start(&mut self) -> Result<SessionChild, Box<dyn Error>> {
+    pub async fn start(&mut self) -> Result<SessionChild, Box<dyn Error>> {
         // Pipe used to communicate the true PID of the final child.
-        let (parentfd, childfd) = pipe().map_err(|e| format!("could not create pipe: {}", e))?;
+        let (parentfd, childfd) = std::os::unix::net::UnixDatagram::pair().map_err(|e| format!("could not create pipe: {}", e))?;
 
         // PAM requires for unfathmoable reasons that we run this in a
         // subprocess. Things seem to fail otherwise.
         let child = match fork()? {
             ForkResult::Parent { child, .. } => {
-                close(childfd)?;
+                close(childfd.as_raw_fd())?;
                 child
             }
             ForkResult::Child => {
@@ -457,7 +503,7 @@ impl<'a> Session<'a> {
                 // this match arm.
 
                 // Close our side of the pipe.
-                close(parentfd).expect("unable to close parent pipe");
+                close(parentfd.as_raw_fd()).expect("unable to close parent pipe");
 
                 // Keep our old stderr around for logging, but CLOEXEC so that
                 // we are not poluting the new child.
@@ -472,17 +518,23 @@ impl<'a> Session<'a> {
             }
         };
 
+        let mut parentfd = tokio::net::UnixDatagram::from_std(parentfd)?;
+
         // We have no use for the PAM handle in the host process anymore
         self.pam.setcred(PamFlag::DELETE_CRED)?;
         self.pam.end()?;
 
         // Read the true child PID.
-        let mut f = unsafe { File::from_raw_fd(parentfd) };
-        let raw_pid = f
-            .read_u64::<LittleEndian>()
-            .map_err(|_| "worker process terminated".to_string())?;
-        let sub_task = Pid::from_raw(raw_pid as i32);
-        drop(f);
+        let mut data = Vec::new();
+        parentfd.recv(&mut data).await?;
+        eprintln!("got: {:?}\n", data);
+        // parentfd.shutdown(std::net::Shutdown::Write)?;
+        let msg = serde_json::from_slice(&data)
+            .map_err(|e| format!("unable to read worker process response: {}", e))?;
+        let sub_task = match msg {
+            SessionChildToParent::FinalChildPid(raw_pid) => Pid::from_raw(raw_pid as i32),
+            _ => panic!("unexpected message"),
+        };
 
         Ok(SessionChild {
             opened: Instant::now(),

@@ -5,18 +5,16 @@ mod scrambler;
 mod session;
 mod terminal;
 
-use std::cell::RefCell;
-use std::error::Error;
-use std::io;
-use std::rc::Rc;
+use std::{
+    cell::RefCell,
+    error::Error,
+    io,
+    rc::Rc,
+};
 
-use nix::unistd::{chown, Gid, Uid};
-
-use crate::scrambler::Scrambler;
-use config::VtSelection;
-use context::Context;
-use greet_proto::{Failure, Header, Request, Response};
-use terminal::Terminal;
+use nix::{
+    unistd::{chown, Gid, Uid},
+};
 
 use tokio::{
     net::{UnixListener, UnixStream},
@@ -24,6 +22,15 @@ use tokio::{
     signal::unix::{signal, SignalKind},
     stream::StreamExt,
     task,
+};
+
+use greet_proto::{Failure, Header, Request, Response};
+
+use crate::{
+    scrambler::Scrambler,
+    config::VtSelection,
+    context::Context,
+    terminal::Terminal,
 };
 
 fn reset_vt(vt: usize) -> Result<(), Box<dyn Error>> {
@@ -38,7 +45,8 @@ async fn client(ctx: Rc<RefCell<Context<'_>>>, mut s: UnixStream) -> Result<(), 
         let mut header_bytes = [0; Header::len()];
 
         s.read_exact(&mut header_bytes[..]).await?;
-        let header = Header::from_slice(&header_bytes)?;
+        let header = Header::from_slice(&header_bytes)
+            .map_err(|e| format!("unable to deserialize header: {}", e))?;
         if header.version != 1 {
             return Err(io::Error::new(io::ErrorKind::Other, "invalid message version").into());
         }
@@ -46,7 +54,8 @@ async fn client(ctx: Rc<RefCell<Context<'_>>>, mut s: UnixStream) -> Result<(), 
         let mut body_bytes = vec![0; header.len as usize];
         s.read_exact(&mut body_bytes[..]).await?;
 
-        let req = Request::from_slice(&body_bytes)?;
+        let req = Request::from_slice(&body_bytes)
+            .map_err(|e| format!("unable to deserialize request: {}", e))?;
         body_bytes.scramble();
 
         let resp = match req {
@@ -70,9 +79,11 @@ async fn client(ctx: Rc<RefCell<Context<'_>>>, mut s: UnixStream) -> Result<(), 
             },
         };
 
-        let resp_bytes = resp.to_bytes().expect("unable to serialize response");
+        let resp_bytes = resp.to_bytes()
+            .map_err(|e| format!("unable to serialize response: {}", e))?;
         let header = Header::new(resp_bytes.len() as u32);
-        let header_bytes = header.to_bytes().expect("unable to serialize header");
+        let header_bytes = header.to_bytes()
+            .map_err(|e| format!("unable to serialize header: {}", e))?;
 
         s.write_all(&header_bytes).await?;
     }
@@ -108,7 +119,7 @@ async fn main() {
         config.greeter_user,
         vt,
     )));
-    if let Err(e) = ctx.borrow_mut().greet() {
+    if let Err(e) = ctx.borrow_mut().greet().await {
         eprintln!("unable to start greeter: {}", e);
         reset_vt(vt).expect("unable to reset vt");
         std::process::exit(1);
@@ -116,8 +127,7 @@ async fn main() {
 
     let mut incoming = listener.incoming();
 
-    let local = task::LocalSet::new();
-    local
+    task::LocalSet::new()
         .run_until(async move {
             let alarm_ctx = ctx.clone();
             task::spawn_local(async move {
@@ -126,7 +136,7 @@ async fn main() {
                     alarm.recv().await;
                     alarm_ctx
                         .borrow_mut()
-                        .alarm()
+                        .alarm().await
                         .expect("unable to read alarm");
                 }
             });
@@ -138,7 +148,7 @@ async fn main() {
                     child.recv().await;
                     child_ctx
                         .borrow_mut()
-                        .check_children()
+                        .check_children().await
                         .expect("unable to check children");
                 }
             });
