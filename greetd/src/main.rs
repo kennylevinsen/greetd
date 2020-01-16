@@ -7,7 +7,10 @@ mod terminal;
 
 use std::{cell::RefCell, error::Error, io, rc::Rc};
 
-use nix::unistd::{chown, Gid, Uid};
+use nix::{
+    sys::mman::{mlockall, MlockAllFlags},
+    unistd::{chown, Gid, Uid},
+};
 
 use tokio::{
     net::{UnixListener, UnixStream},
@@ -81,6 +84,8 @@ async fn client(ctx: Rc<RefCell<Context<'_>>>, mut s: UnixStream) -> Result<(), 
 
 #[tokio::main]
 async fn main() {
+    mlockall(MlockAllFlags::all()).expect("unable to lock pages");
+
     let config = config::read_config();
 
     eprintln!("starting greetd");
