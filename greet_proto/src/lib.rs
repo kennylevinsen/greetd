@@ -65,12 +65,17 @@ pub enum ShutdownAction {
 #[serde(rename_all = "snake_case")]
 #[serde(tag = "type")]
 pub enum Request {
-    Login {
+    Initiate {
         username: String,
-        password: String,
         cmd: Vec<String>,
         env: Vec<String>,
     },
+    GetQuestion,
+    Answer {
+        answer: Option<String>,
+    },
+    Cancel,
+    Start,
     Shutdown {
         action: ShutdownAction,
     },
@@ -90,7 +95,19 @@ impl Request {
 #[serde(tag = "error_type")]
 #[serde(rename_all = "snake_case")]
 pub enum Failure {
-    LoginError {
+    InitiateError {
+        description: String,
+    },
+    GetQuestionError {
+        description: String,
+    },
+    AnswerError {
+        description: String,
+    },
+    StartError {
+        description: String,
+    },
+    CancelError {
         description: String,
     },
     ShutdownError {
@@ -100,10 +117,27 @@ pub enum Failure {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QuestionStyle {
+    Visible,
+    Secret,
+    Info,
+    Error,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct Question {
+    pub msg: String,
+    pub style: QuestionStyle,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 pub enum Response {
     Success,
+    Question { next_question: Option<Question> },
     Failure(Failure),
 }
 

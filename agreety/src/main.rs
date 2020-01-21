@@ -8,7 +8,7 @@ use ini::Ini;
 use nix::sys::utsname::uname;
 use rpassword::prompt_password_stderr;
 
-use greet_proto::{Header, Request, Response};
+use greet_proto::{Header, Question, QuestionStyle, Request, Response};
 
 fn prompt_stderr(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     let stdin = io::stdin();
@@ -50,16 +50,14 @@ fn get_issue() -> Result<String, Box<dyn std::error::Error>> {
 }
 
 fn login(node: &str, cmd: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
-    let username = prompt_stderr(&format!("{} login: ", node)).unwrap();
-    let password = prompt_password_stderr("Password: ").unwrap();
+    let username = prompt_stderr(&format!("{} login: ", node))?;
     let command = match cmd {
         Some(cmd) => cmd.to_string(),
-        None => prompt_stderr("Command: ").unwrap(),
+        None => prompt_stderr("Command: ")?,
     };
 
-    let request = Request::Login {
+    let request = Request::Initiate {
         username,
-        password,
         env: vec![
             format!("XDG_SESSION_DESKTOP={}", &command),
             format!("XDG_CURRENT_DESKTOP={}", &command),
@@ -86,11 +84,83 @@ fn login(node: &str, cmd: Option<&str>) -> Result<(), Box<dyn std::error::Error>
     let resp = Response::from_slice(&resp_buf)?;
 
     match resp {
-        Response::Success => Ok(()),
-        Response::Failure(err) => {
-            Err(std::io::Error::new(io::ErrorKind::Other, format!("login error: {:?}", err)).into())
+        Response::Success => (),
+        Response::Failure(err) => return Err(format!("login error: {:?}", err).into()),
+        _ => return Err("unexpected response".into()),
+    }
+
+    loop {
+        let request = Request::GetQuestion;
+        let req = request.to_bytes()?;
+        let header = Header::new(req.len() as u32);
+        stream.write_all(&header.to_bytes()?)?;
+        stream.write_all(&req)?;
+
+        // Read response
+        let mut header_buf = vec![0; Header::len()];
+        stream.read_exact(&mut header_buf)?;
+        let header = Header::from_slice(&header_buf)?;
+
+        let mut resp_buf = vec![0; header.len as usize];
+        stream.read_exact(&mut resp_buf)?;
+        let resp = Response::from_slice(&resp_buf)?;
+
+        let mut starting = false;
+
+        let request = match resp {
+            Response::Question { next_question } => match next_question {
+                Some(Question { msg, style }) => {
+                    let answer = match style {
+                        QuestionStyle::Visible => prompt_stderr(&msg)?,
+                        QuestionStyle::Secret => prompt_password_stderr(&msg)?,
+                        QuestionStyle::Info => {
+                            eprintln!("info: {}", msg);
+                            "".to_string()
+                        }
+                        QuestionStyle::Error => {
+                            eprintln!("error: {}", msg);
+                            "".to_string()
+                        }
+                    };
+
+                    Request::Answer {
+                        answer: Some(answer),
+                    }
+                }
+                None => {
+                    starting = true;
+                    Request::Start
+                }
+            },
+            Response::Failure(err) => return Err(format!("login error: {:?}", err).into()),
+            _ => return Err("unexpected response".into()),
+        };
+
+        let req = request.to_bytes()?;
+        let header = Header::new(req.len() as u32);
+        stream.write_all(&header.to_bytes()?)?;
+        stream.write_all(&req)?;
+
+        // Read response
+        let mut header_buf = vec![0; Header::len()];
+        stream.read_exact(&mut header_buf)?;
+        let header = Header::from_slice(&header_buf)?;
+
+        let mut resp_buf = vec![0; header.len as usize];
+        stream.read_exact(&mut resp_buf)?;
+        let resp = Response::from_slice(&resp_buf)?;
+
+        match resp {
+            Response::Success => (),
+            Response::Failure(err) => return Err(format!("login error: {:?}", err).into()),
+            _ => return Err("unexpected response".into()),
+        }
+
+        if starting {
+            break;
         }
     }
+    Ok(())
 }
 
 fn main() {
@@ -133,9 +203,7 @@ fn main() {
             Ok(()) => {
                 break;
             }
-            Err(_) => {
-                eprintln!("");
-            }
+            Err(e) => eprintln!("error: {}", e),
         }
     }
 }

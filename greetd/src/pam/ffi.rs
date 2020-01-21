@@ -1,13 +1,14 @@
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::mem;
+use std::pin::Pin;
 
 use libc::{c_int, c_void, calloc, free, size_t, strdup};
 use pam_sys::{PamConversation, PamMessage, PamMessageStyle, PamResponse, PamReturnCode};
 
 use super::converse::Converse;
 
-pub struct PamConvHandlerWrapper {
-    pub handler: Box<dyn Converse>,
+pub struct PamConvHandlerWrapper<'a> {
+    pub handler: Pin<Box<dyn Converse + 'a>>,
 }
 
 pub fn make_conversation(conv: &mut PamConvHandlerWrapper) -> PamConversation {
@@ -31,7 +32,7 @@ pub extern "C" fn converse(
         return PamReturnCode::BUF_ERR as c_int;
     }
 
-    let wrapper = unsafe { &mut *(appdata_ptr as *mut PamConvHandlerWrapper) };
+    let wrapper = unsafe { &*(appdata_ptr as *const PamConvHandlerWrapper) };
 
     let mut result: PamReturnCode = PamReturnCode::SUCCESS;
     for i in 0..num_msg as isize {
@@ -39,24 +40,43 @@ pub extern "C" fn converse(
         let m: &mut PamMessage = unsafe { &mut **(msg.offset(i)) };
         let r: &mut PamResponse = unsafe { &mut *(resp.offset(i)) };
         let msg = unsafe { CStr::from_ptr(m.msg) };
+        let msg = match msg.to_str() {
+            Ok(m) => m,
+            Err(_) => {
+                result = PamReturnCode::CONV_ERR;
+                break;
+            }
+        };
         // match on msg_style
         match PamMessageStyle::from(m.msg_style) {
             PamMessageStyle::PROMPT_ECHO_ON => {
                 if let Ok(handler_response) = wrapper.handler.prompt_echo(msg) {
-                    r.resp = unsafe { strdup(handler_response.as_ptr()) };
+                    let cstr =
+                        CString::new(handler_response).expect("unable to allocate response string");
+                    r.resp = unsafe { strdup(cstr.as_ptr()) };
                 } else {
                     result = PamReturnCode::CONV_ERR;
                 }
             }
             PamMessageStyle::PROMPT_ECHO_OFF => {
                 if let Ok(handler_response) = wrapper.handler.prompt_blind(msg) {
-                    r.resp = unsafe { strdup(handler_response.as_ptr()) };
+                    let cstr =
+                        CString::new(handler_response).expect("unable to allocate response string");
+                    r.resp = unsafe { strdup(cstr.as_ptr()) };
                 } else {
                     result = PamReturnCode::CONV_ERR;
                 }
             }
-            PamMessageStyle::ERROR_MSG => wrapper.handler.error(msg),
-            PamMessageStyle::TEXT_INFO => wrapper.handler.info(msg),
+            PamMessageStyle::ERROR_MSG => {
+                if wrapper.handler.error(msg).is_err() {
+                    result = PamReturnCode::CONV_ERR;
+                }
+            }
+            PamMessageStyle::TEXT_INFO => {
+                if wrapper.handler.info(msg).is_err() {
+                    result = PamReturnCode::CONV_ERR;
+                }
+            }
         }
         if result != PamReturnCode::SUCCESS {
             break;

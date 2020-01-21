@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::ffi::{CStr, CString};
 use std::io;
+use std::pin::Pin;
 use std::ptr;
 
 use libc::c_void;
@@ -12,20 +13,25 @@ use super::ffi::{make_conversation, PamConvHandlerWrapper};
 
 pub struct PamSession<'a> {
     handle: &'a mut PamHandle,
-    pub converse: Box<PamConvHandlerWrapper>,
+    #[allow(unused)]
+    lifetime_extender: Pin<Box<PamConvHandlerWrapper<'a>>>,
     last_code: PamReturnCode,
 }
 
 impl<'a> PamSession<'a> {
-    pub fn start(service: &str, pam_conv: Box<dyn Converse>) -> Result<PamSession, Box<dyn Error>> {
-        let mut pch = Box::new(PamConvHandlerWrapper { handler: pam_conv });
+    pub fn start(
+        service: &str,
+        user: &'a str,
+        pam_conv: Pin<Box<dyn Converse + 'a>>,
+    ) -> Result<PamSession<'a>, Box<dyn Error>> {
+        let mut pch = Box::pin(PamConvHandlerWrapper { handler: pam_conv });
         let conv = make_conversation(&mut *pch);
         let mut pam_handle: *mut PamHandle = ptr::null_mut();
 
-        match pam_sys::start(service, None, &conv, &mut pam_handle) {
+        match pam_sys::start(service, Some(user), &conv, &mut pam_handle) {
             PamReturnCode::SUCCESS => Ok(PamSession {
                 handle: unsafe { &mut *pam_handle },
-                converse: pch,
+                lifetime_extender: pch,
                 last_code: PamReturnCode::SUCCESS,
             }),
             _ => Err(io::Error::new(io::ErrorKind::Other, "unable to start pam session").into()),

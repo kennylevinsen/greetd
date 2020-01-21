@@ -5,17 +5,19 @@ use std::time::Duration;
 
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{alarm, execv, fork, ForkResult};
+use tokio::{sync::RwLock, time::delay_for};
 
-use crate::scrambler::Scrambler;
-use crate::session::{Session, SessionChild};
-use greet_proto::ShutdownAction;
+use crate::session::{QuestionStyle as SessQuestionStyle, Session, SessionChild, SessionState};
+use greet_proto::{Question, QuestionStyle, ShutdownAction};
+
+pub struct ContextInner {
+    current_session: Option<SessionChild>,
+    pending_session: Option<Session>,
+}
 
 /// Context keeps track of running sessions and start new ones.
-pub struct Context<'a> {
-    session: Option<SessionChild>,
-    greeter: Option<SessionChild>,
-    pending_session: Option<Session<'a>>,
-
+pub struct Context {
+    inner: RwLock<ContextInner>,
     greeter_bin: String,
     greeter_user: String,
     vt: usize,
@@ -38,91 +40,146 @@ fn run(cmd: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-impl<'a> Context<'a> {
-    pub fn new(greeter_bin: String, greeter_user: String, vt: usize) -> Context<'a> {
+impl Context {
+    pub fn new(greeter_bin: String, greeter_user: String, vt: usize) -> Context {
         Context {
-            session: None,
-            greeter: None,
-            pending_session: None,
+            inner: RwLock::new(ContextInner {
+                current_session: None,
+                pending_session: None,
+            }),
             greeter_bin,
             greeter_user,
             vt,
         }
     }
 
-    /// Start a greeter session.
-    pub async fn greet(&mut self) -> Result<(), Box<dyn Error>> {
-        if self.greeter.is_some() {
-            eprintln!("greeter session already active");
-            return Err(io::Error::new(io::ErrorKind::Other, "greeter already active").into());
-        }
-
+    async fn create_greeter(&self) -> Result<SessionChild, Box<dyn Error>> {
         let mut pending_session = Session::new(
             "greeter",
             "user",
             &self.greeter_user,
-            "",
             vec![self.greeter_bin.to_string()],
             vec![],
             self.vt,
-        )?;
-        let greeter = match pending_session.start().await {
-            Ok(s) => s,
-            Err(e) => return Err(format!("session start failed: {}", e).into()),
-        };
-        self.greeter = Some(greeter);
+        )
+        .await?;
+        match pending_session.get_state().await {
+            Ok(SessionState::Ready) => (),
+            Ok(SessionState::Question(_, _)) => {
+                return Err("session start failed: unexpected question".into())
+            }
+            Err(err) => return Err(format!("session start failed: {}", err).into()),
+        }
+        match pending_session.start().await {
+            Ok(s) => Ok(s),
+            Err(e) => Err(format!("session start failed: {}", e).into()),
+        }
+    }
 
+    /// Start a greeter session.
+    pub async fn greet(&self) -> Result<(), Box<dyn Error>> {
+        {
+            let inner = self.inner.read().await;
+            if inner.current_session.is_some() {
+                eprintln!("session already active");
+                return Err(io::Error::new(io::ErrorKind::Other, "session already active").into());
+            }
+        }
+
+        self.inner.write().await.current_session = Some(self.create_greeter().await?);
         Ok(())
     }
 
-    /// Start a login session.
-    pub fn login(
-        &mut self,
+    pub async fn initiate(
+        &self,
         username: String,
-        mut password: String,
         cmd: Vec<String>,
         provided_env: Vec<String>,
     ) -> Result<(), Box<dyn Error>> {
-        if self.greeter.is_none() {
-            eprintln!("login request not valid when greeter is not active");
-            return Err(io::Error::new(io::ErrorKind::Other, "greeter not active").into());
-        }
-        if self.session.is_some() {
-            eprintln!("login session already active");
-            return Err(io::Error::new(io::ErrorKind::Other, "session already active").into());
+        {
+            let inner = self.inner.read().await;
+            if inner.current_session.is_none() {
+                eprintln!("login request requires active session");
+                return Err(io::Error::new(io::ErrorKind::Other, "session not active").into());
+            }
         }
 
-        let pending_session = Session::new(
-            "login",
-            "user",
-            &username,
-            &password,
-            cmd,
-            provided_env,
-            self.vt,
-        )?;
-        password.scramble();
-        self.pending_session = Some(pending_session);
-
-        // We give the greeter 5 seconds to prove itself well-behaved before
-        // we lose patience and shoot it in the back repeatedly. This is all
-        // handled by our alarm handler.
-        alarm::set(5);
+        let pending_session =
+            Session::new("login", "user", &username, cmd, provided_env, self.vt).await?;
+        self.inner.write().await.pending_session = Some(pending_session);
 
         Ok(())
     }
 
-    pub fn shutdown(&mut self, action: ShutdownAction) -> Result<(), Box<dyn Error>> {
-        if self.greeter.is_none() || self.session.is_some() {
-            eprintln!("shutdown request not valid when greeter is not active");
-            return Err(io::Error::new(io::ErrorKind::Other, "greeter not active").into());
+    pub async fn cancel(&self) -> Result<(), Box<dyn Error>> {
+        let pending_session = self.inner.write().await.pending_session.take();
+        if let Some(mut s) = pending_session {
+            s.post_answer(None).await?
+        }
+        Ok(())
+    }
+
+    pub async fn get_question(&self) -> Result<Option<Question>, Box<dyn Error>> {
+        let mut inner = self.inner.write().await;
+        match &mut inner.pending_session {
+            Some(s) => match s.get_state().await? {
+                SessionState::Ready => Ok(None),
+                SessionState::Question(style, string) => Ok(Some(Question {
+                    msg: string,
+                    style: match style {
+                        SessQuestionStyle::Visible => QuestionStyle::Visible,
+                        SessQuestionStyle::Secret => QuestionStyle::Secret,
+                        SessQuestionStyle::Info => QuestionStyle::Info,
+                        SessQuestionStyle::Error => QuestionStyle::Error,
+                    },
+                })),
+            },
+            None => Err("no session active".into()),
+        }
+    }
+
+    pub async fn post_answer(&self, answer: Option<String>) -> Result<(), Box<dyn Error>> {
+        let mut inner = self.inner.write().await;
+        match &mut inner.pending_session {
+            Some(s) => s.post_answer(answer).await,
+            None => Err("no session active".into()),
+        }
+    }
+
+    pub async fn start(&self) -> Result<(), Box<dyn Error>> {
+        let mut inner = self.inner.write().await;
+        match &mut inner.pending_session {
+            Some(s) => {
+                match s.get_state().await? {
+                    SessionState::Ready => {
+                        // We give the greeter 5 seconds to prove itself well-behaved before
+                        // we lose patience and shoot it in the back repeatedly. This is all
+                        // handled by our alarm handler.
+                        alarm::set(5);
+
+                        Ok(())
+                    }
+                    _ => Err("session is not ready".into()),
+                }
+            }
+            None => Err("no session active".into()),
+        }
+    }
+
+    pub async fn shutdown(&self, action: ShutdownAction) -> Result<(), Box<dyn Error>> {
+        {
+            let inner = self.inner.read().await;
+            if inner.current_session.is_none() {
+                eprintln!("shutdown request not valid when greeter is not active");
+                return Err(io::Error::new(io::ErrorKind::Other, "greeter not active").into());
+            }
         }
 
         let cmd = match action {
             ShutdownAction::Poweroff => "poweroff",
             ShutdownAction::Reboot => "reboot",
             ShutdownAction::Exit => {
-                self.terminate()?;
+                self.terminate().await?;
                 unreachable!("previous call must always fail");
             }
         };
@@ -131,10 +188,11 @@ impl<'a> Context<'a> {
     }
 
     /// Notify the Context of an alarm.
-    pub async fn alarm(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn alarm(&self) -> Result<(), Box<dyn Error>> {
         // Keep trying to terminate the greeter until it gives up.
-        if let Some(mut p) = self.pending_session.take() {
-            if let Some(g) = self.greeter.take() {
+        let mut inner = self.inner.write().await;
+        if let Some(mut p) = inner.pending_session.take() {
+            if let Some(g) = inner.current_session.take() {
                 if p.elapsed() > Duration::from_secs(10) {
                     // We're out of patience.
                     g.kill();
@@ -142,18 +200,18 @@ impl<'a> Context<'a> {
                     // Let's try to give it a gentle nudge.
                     g.term();
                 }
-                self.greeter = Some(g);
-                self.pending_session = Some(p);
+                inner.current_session = Some(g);
+                inner.pending_session = Some(p);
                 alarm::set(1);
                 return Ok(());
             }
-
+            drop(inner);
             let s = match p.start().await {
                 Ok(s) => s,
                 Err(e) => return Err(format!("session start failed: {}", e).into()),
             };
-
-            self.session = Some(s);
+            let mut inner = self.inner.write().await;
+            inner.current_session = Some(s);
         }
 
         Ok(())
@@ -161,7 +219,7 @@ impl<'a> Context<'a> {
 
     /// Notify the Context that it needs to check its children for termination.
     /// This should be called on SIGCHLD.
-    pub async fn check_children(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn check_children(&self) -> Result<(), Box<dyn Error>> {
         loop {
             match waitpid(None, Some(WaitPidFlag::WNOHANG)) {
                 // No pending exits.
@@ -169,55 +227,45 @@ impl<'a> Context<'a> {
 
                 // We got an exit, see if it's something we need to clean up.
                 Ok(WaitStatus::Exited(pid, ..)) | Ok(WaitStatus::Signaled(pid, ..)) => {
-                    match &self.session {
+                    let mut inner = self.inner.write().await;
+                    let was_greeter;
+                    let elapsed;
+                    match &inner.current_session {
                         Some(session) if session.owns_pid(pid) => {
-                            // Session task is dead, so kill the session and
-                            // restart the greeter. However, ensure that we are
-                            // not spamming th egreeter by waiting at least one
-                            // one second since login was requested before
-                            // restarting it.
-                            if session.elapsed() < Duration::from_secs(1) {
-                                std::thread::sleep(std::time::Duration::from_millis(1000));
-                            }
-                            self.session = None;
                             eprintln!("session exited");
-                            if let Err(e) = self.greet().await {
-                                return Err(
-                                    format!("session start failed for greeter: {}", e).into()
-                                );
-                            }
+                            was_greeter = session.get_service() == "greeter";
+                            elapsed = session.elapsed();
+                            inner.current_session = None;
                         }
-                        _ => (),
-                    };
-                    match &self.greeter {
-                        Some(greeter) if greeter.owns_pid(pid) => {
-                            self.greeter = None;
-                            match self.pending_session.take() {
-                                Some(mut pending_session) => {
-                                    eprintln!("starting pending session");
-                                    // Our greeter finally bit the dust so we can
-                                    // start our pending session.
-                                    let s = match pending_session.start().await {
-                                        Ok(s) => s,
-                                        Err(e) => {
-                                            return Err(
-                                                format!("session start failed: {}", e).into()
-                                            );
-                                        }
-                                    };
+                        _ => continue,
+                    }
 
-                                    self.session = Some(s);
+                    match inner.pending_session.take() {
+                        Some(mut pending_session) => {
+                            eprintln!("starting pending session");
+                            // Our greeter finally bit the dust so we can
+                            // start our pending session.
+                            drop(inner);
+                            let s = match pending_session.start().await {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    return Err(format!("session start failed: {}", e).into());
                                 }
-                                None => {
-                                    if self.session.is_none() {
-                                        // Greeter died on us, let's just die with it.
-                                        return Err("greeter died with no pending session".into());
-                                    }
-                                }
-                            }
+                            };
+                            let mut inner = self.inner.write().await;
+                            inner.current_session = Some(s);
                         }
-                        _ => (),
-                    };
+                        None if !was_greeter => {
+                            if elapsed < Duration::from_secs(1) {
+                                delay_for(Duration::from_secs(1)).await;
+                            }
+                            inner.current_session = Some(self.create_greeter().await?);
+                        }
+                        None => {
+                            // Greeter died on us, let's just die with it.
+                            return Err("greeter died with no pending session".into());
+                        }
+                    }
                 }
 
                 // Useless status.
@@ -234,12 +282,13 @@ impl<'a> Context<'a> {
 
     /// Notify the Context that we want to terminate. This should be called on
     /// SIGTERM.
-    pub fn terminate(&mut self) -> Result<(), Box<dyn Error>> {
-        if let Some(session) = self.session.take() {
-            session.shoo();
+    pub async fn terminate(&self) -> Result<(), Box<dyn Error>> {
+        let mut inner = self.inner.write().await;
+        if let Some(sess) = &inner.current_session {
+            sess.shoo();
         }
-        if let Some(greeter) = self.greeter.take() {
-            greeter.shoo();
+        if let Some(sess) = &mut inner.pending_session {
+            let _ = sess.post_answer(None).await;
         }
         Err("terminating".into())
     }

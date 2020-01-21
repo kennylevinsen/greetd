@@ -5,7 +5,7 @@ mod scrambler;
 mod session;
 mod terminal;
 
-use std::{cell::RefCell, error::Error, io, rc::Rc};
+use std::{error::Error, io, rc::Rc};
 
 use nix::{
     sys::mman::{mlockall, MlockAllFlags},
@@ -31,7 +31,7 @@ fn reset_vt(vt: usize) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn client(ctx: Rc<RefCell<Context<'_>>>, mut s: UnixStream) -> Result<(), Box<dyn Error>> {
+async fn client(ctx: Rc<Context>, mut s: UnixStream) -> Result<(), Box<dyn Error>> {
     loop {
         let mut header_bytes = [0; Header::len()];
 
@@ -50,18 +50,39 @@ async fn client(ctx: Rc<RefCell<Context<'_>>>, mut s: UnixStream) -> Result<(), 
         body_bytes.scramble();
 
         let resp = match req {
-            Request::Login {
-                username,
-                password,
-                cmd,
-                env,
-            } => match ctx.borrow_mut().login(username, password, cmd, env) {
+            Request::Initiate { username, cmd, env } => {
+                match ctx.initiate(username, cmd, env).await {
+                    Ok(_) => Response::Success,
+                    Err(e) => Response::Failure(Failure::InitiateError {
+                        description: format!("{}", e),
+                    }),
+                }
+            }
+            Request::Start => match ctx.start().await {
                 Ok(_) => Response::Success,
-                Err(e) => Response::Failure(Failure::LoginError {
+                Err(e) => Response::Failure(Failure::StartError {
                     description: format!("{}", e),
                 }),
             },
-            Request::Shutdown { action } => match ctx.borrow_mut().shutdown(action) {
+            Request::GetQuestion => match ctx.get_question().await {
+                Ok(v) => Response::Question { next_question: v },
+                Err(e) => Response::Failure(Failure::GetQuestionError {
+                    description: format!("{}", e),
+                }),
+            },
+            Request::Cancel => match ctx.cancel().await {
+                Ok(_) => Response::Success,
+                Err(e) => Response::Failure(Failure::CancelError {
+                    description: format!("{}", e),
+                }),
+            },
+            Request::Answer { answer } => match ctx.post_answer(answer).await {
+                Ok(_) => Response::Success,
+                Err(e) => Response::Failure(Failure::AnswerError {
+                    description: format!("{}", e),
+                }),
+            },
+            Request::Shutdown { action } => match ctx.shutdown(action).await {
                 Ok(_) => Response::Success,
                 Err(e) => Response::Failure(Failure::ShutdownError {
                     action,
@@ -79,6 +100,7 @@ async fn client(ctx: Rc<RefCell<Context<'_>>>, mut s: UnixStream) -> Result<(), 
             .map_err(|e| format!("unable to serialize header: {}", e))?;
 
         s.write_all(&header_bytes).await?;
+        s.write_all(&resp_bytes).await?;
     }
 }
 
@@ -109,12 +131,8 @@ async fn main() {
     };
     drop(term);
 
-    let ctx = Rc::new(RefCell::new(Context::new(
-        config.greeter,
-        config.greeter_user,
-        vt,
-    )));
-    if let Err(e) = ctx.borrow_mut().greet().await {
+    let ctx = Rc::new(Context::new(config.greeter, config.greeter_user, vt));
+    if let Err(e) = ctx.greet().await {
         eprintln!("unable to start greeter: {}", e);
         reset_vt(vt).expect("unable to reset vt");
         std::process::exit(1);
@@ -129,11 +147,7 @@ async fn main() {
                 let mut alarm = signal(SignalKind::alarm()).expect("unable to listen for SIGALRM");
                 loop {
                     alarm.recv().await;
-                    alarm_ctx
-                        .borrow_mut()
-                        .alarm()
-                        .await
-                        .expect("unable to read alarm");
+                    alarm_ctx.alarm().await.expect("unable to read alarm");
                 }
             });
 
@@ -143,7 +157,6 @@ async fn main() {
                 loop {
                     child.recv().await;
                     child_ctx
-                        .borrow_mut()
                         .check_children()
                         .await
                         .expect("unable to check children");
@@ -156,10 +169,7 @@ async fn main() {
                     signal(SignalKind::terminate()).expect("unable to listen for SIGTERM");
                 loop {
                     term.recv().await;
-                    term_ctx
-                        .borrow_mut()
-                        .terminate()
-                        .expect("unable to terminate");
+                    term_ctx.terminate().await.expect("unable to terminate");
                 }
             });
 
