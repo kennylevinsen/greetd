@@ -1,7 +1,7 @@
 use std::env;
 use std::fs::read_to_string;
 
-use clap::{crate_authors, crate_version, App, Arg};
+use getopts::Options;
 use serde::Deserialize;
 
 fn default_vt() -> toml::Value {
@@ -46,58 +46,35 @@ impl Config {
     }
 }
 
+fn print_usage(program: &str, opts: Options) {
+    let brief = format!("Usage: {} FILE [options]", program);
+    print!("{}", opts.usage(&brief));
+}
+
 pub fn read_config() -> Config {
-    let matches = App::new("greetd")
-        .version(crate_version!())
-        .author(crate_authors!())
-        .about("Universal greeter daemon")
-        .arg(
-            Arg::with_name("vt")
-                .short("t")
-                .long("vt")
-                .takes_value(true)
-                .help("VT to run on"),
-        )
-        .arg(
-            Arg::with_name("socket-path")
-                .short("s")
-                .long("socket-path")
-                .takes_value(true)
-                .help("socket path to use"),
-        )
-        .arg(
-            Arg::with_name("greeter")
-                .short("g")
-                .long("greeter")
-                .takes_value(true)
-                .help("greeter to run"),
-        )
-        .arg(
-            Arg::with_name("greeter-user")
-                .short("u")
-                .long("greeter-user")
-                .takes_value(true)
-                .help("user to run greeter as"),
-        )
-        .arg(
-            Arg::with_name("config")
-                .short("c")
-                .long("config")
-                .takes_value(true)
-                .help("config file to use"),
-        )
-        .arg(
-            Arg::with_name("session-worker")
-                .long("session-worker")
-                .takes_value(true)
-                .help("start a session worker"),
-        )
-        .get_matches();
+    let args: Vec<String> = env::args().collect();
+    let program = args[0].clone();
+    let mut opts = Options::new();
+    opts.optflag("t", "vt", "VT to run on");
+    opts.optflag("s", "socket-path", "socket path to use");
+    opts.optflag("g", "greeter", "greeter to run");
+    opts.optflag("u", "greeter-user", "user to run greeter as");
+    opts.optflag("c", "config", "config file to use");
+    opts.optflag("", "session-worker", "start a session worker");
+    opts.optflag("h", "help", "print this help menu");
+    let matches = match opts.parse(&args[1..]) {
+        Ok(m) => { m }
+        Err(f) => { panic!(f.to_string()) }
+    };
+    if matches.opt_present("h") {
+        print_usage(&program, opts);
+        std::process::exit(0);
+    }
 
     let mut config = match read_to_string(
         matches
-            .value_of("config")
-            .unwrap_or("/etc/greetd/config.toml"),
+            .opt_str("config")
+            .unwrap_or("/etc/greetd/config.toml".to_string()),
     ) {
         Ok(s) => match toml::from_str(&s) {
             Ok(v) => v,
@@ -116,26 +93,24 @@ pub fn read_config() -> Config {
         },
     };
 
-    if let Some(vt) = matches.value_of("vt") {
-        config.vt = match vt {
+    if let Some(vt) = matches.opt_str("vt") {
+        config.vt = match vt.as_str() {
             "next" => toml::Value::String("next".to_string()),
             "current" => toml::Value::String("current".to_string()),
             v => toml::Value::Integer(v.parse().expect("could not parse vt number")),
         }
     }
-    if let Some(greeter) = matches.value_of("greeter") {
-        config.greeter = greeter.to_string();
+    if let Some(greeter) = matches.opt_str("greeter") {
+        config.greeter = greeter;
     }
-    if let Some(user) = matches.value_of("greeter-user") {
-        config.greeter_user = user.to_string();
+    if let Some(user) = matches.opt_str("greeter-user") {
+        config.greeter_user = user;
     }
-    if let Some(socket_path) = matches.value_of("socket-path") {
-        config.socket_path = socket_path.to_string();
+    if let Some(socket_path) = matches.opt_str("socket-path") {
+        config.socket_path = socket_path;
     }
-    if let Some(session_worker) = matches.value_of("session-worker") {
+    if let Some(session_worker) = matches.opt_get("session-worker").expect("unable to parse session-worker") {
         config.session_worker = session_worker
-            .parse()
-            .expect("unable to parse session-worker fd");
     }
 
     if config.greeter.is_empty() {
