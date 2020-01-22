@@ -210,8 +210,8 @@ async fn session_worker_main(config: config::Config) -> Result<(), Box<dyn Error
 
 #[tokio::main]
 async fn main() {
-    mlockall(MlockAllFlags::all()).expect("unable to lock pages");
     let config = config::read_config();
+    mlockall(MlockAllFlags::all()).expect("unable to lock pages");
     task::LocalSet::new()
         .run_until(async move {
             if config.session_worker > 0 {
