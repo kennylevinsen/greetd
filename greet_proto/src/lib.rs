@@ -9,7 +9,7 @@
 //! See `agreety` for a simple example use of this library.
 
 use std::error::Error;
-use std::io;
+use std::io::Cursor;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
@@ -31,11 +31,11 @@ impl Header {
     }
 
     pub fn from_slice(bytes: &[u8]) -> Result<Header, Box<dyn Error>> {
-        let mut cursor = std::io::Cursor::new(bytes);
+        let mut cursor = Cursor::new(bytes);
 
         let proto_magic = cursor.read_u32::<LittleEndian>()?;
         if proto_magic != 0xAFBF_CFDF {
-            return Err(io::Error::new(io::ErrorKind::Other, "invalid message magic").into());
+            return Err("invalid message magic".into());
         }
 
         let version = cursor.read_u32::<LittleEndian>()?;

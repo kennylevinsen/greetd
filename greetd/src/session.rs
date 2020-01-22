@@ -13,6 +13,8 @@ use nix::{
     unistd::Pid,
 };
 
+use tokio::net::UnixDatagram as TokioUnixDatagram;
+
 use crate::session_worker::{ParentToSessionChild, QuestionStyle, SessionChildToParent};
 
 /// SessionChild tracks the processes spawned by a session
@@ -81,7 +83,7 @@ pub enum SessionState {
 /// A device to initiate a logged in PAM session.
 pub struct Session {
     task: Pid,
-    sock: tokio::net::UnixDatagram,
+    sock: TokioUnixDatagram,
     last_msg: Option<SessionChildToParent>,
 }
 
@@ -104,7 +106,7 @@ impl Session {
 
         Ok(Session {
             task: Pid::from_raw(child.id() as i32),
-            sock: tokio::net::UnixDatagram::from_std(parentfd)?,
+            sock: TokioUnixDatagram::from_std(parentfd)?,
             last_msg: None,
         })
     }

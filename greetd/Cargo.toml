@@ -17,3 +17,4 @@ libc = "0.2"
 futures = "0.3"
 tokio = { version = "0.2", features = ["net", "stream", "sync", "macros", "signal", "rt-util", "io-util", "time"] }
 tokio-util = { version = "0.2", features = ["codec"] }
+byteorder = "1.3"

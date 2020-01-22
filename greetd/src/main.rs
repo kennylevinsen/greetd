@@ -3,8 +3,10 @@ mod context;
 mod pam;
 mod scrambler;
 mod session;
+mod session_conv;
 mod session_worker;
 mod terminal;
+mod user_environment;
 
 use std::{
     error::Error,

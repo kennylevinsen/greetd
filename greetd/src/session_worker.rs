@@ -1,26 +1,17 @@
-use std::{
-    collections::HashMap,
-    env,
-    error::Error,
-    ffi::CString,
-    fs,
-    fs::File,
-    io::{BufRead, BufReader},
-    path::PathBuf,
-};
+use std::{env, error::Error, ffi::CString, os::unix::net::UnixDatagram};
 
 use nix::{
-    sys::{
-        signal::{SigSet, Signal},
-        wait::waitpid,
-    },
+    sys::wait::waitpid,
     unistd::{execve, fork, initgroups, setgid, setsid, setuid, ForkResult, Gid, Uid},
 };
 use pam_sys::{PamFlag, PamItemType};
 use serde::{Deserialize, Serialize};
 use users::os::unix::UserExt;
 
-use crate::{pam::converse::Converse, pam::session::PamSession, terminal};
+use crate::{
+    pam::session::PamSession, session_conv::SessionConv, terminal,
+    user_environment::generate_user_environment,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum QuestionStyle {
@@ -55,155 +46,11 @@ pub enum SessionChildToParent {
     FinalChildPid(u64),
 }
 
-/// Returns a set containing the signals we want to block in the main process.
-/// This is also used to unblock the same signals again before starting child
-/// processes.
-pub fn blocked_sigset() -> SigSet {
-    let mut mask = SigSet::empty();
-    mask.add(Signal::SIGALRM);
-    mask.add(Signal::SIGTERM);
-    mask.add(Signal::SIGCHLD);
-    mask
-}
-
-fn split_env<'a>(s: &'a str) -> Option<(&'a str, &str)> {
-    let components: Vec<&str> = s.splitn(2, '=').collect();
-    match components.len() {
-        0 => None,
-        1 => Some((components[0], "")),
-        2 => Some((components[0], components[1])),
-        _ => panic!("splitn returned more values than requested"),
-    }
-}
-
-pub struct SessionConv<'a> {
-    sock: &'a std::os::unix::net::UnixDatagram,
-}
-
-impl<'a> SessionConv<'a> {
-    fn question(&self, msg: &str, style: QuestionStyle) -> Result<String, ()> {
-        let msg = SessionChildToParent::PamMessage {
-            style,
-            msg: msg.to_string(),
-        };
-        let data = serde_json::to_vec(&msg).map_err(|e| eprintln!("pam_conv: {}", e))?;
-        self.sock
-            .send(&data)
-            .map_err(|e| eprintln!("pam_conv: {}", e))?;
-
-        let mut data = [0; 1024];
-        let len = self
-            .sock
-            .recv(&mut data[..])
-            .map_err(|e| eprintln!("pam_conv: {}", e))?;
-        let msg = serde_json::from_slice(&data[..len]).map_err(|e| eprintln!("pam_conv: {}", e))?;
-
-        match msg {
-            ParentToSessionChild::PamResponse { resp, .. } => Ok(resp),
-            ParentToSessionChild::Cancel => Err(()),
-            _ => Err(()),
-        }
-    }
-
-    /// Create a new `PasswordConv` handler
-    pub fn new(sock: &'a std::os::unix::net::UnixDatagram) -> SessionConv {
-        SessionConv { sock }
-    }
-}
-
-impl<'a> Converse for SessionConv<'a> {
-    fn prompt_echo(&self, msg: &str) -> Result<String, ()> {
-        self.question(msg, QuestionStyle::Visible)
-    }
-    fn prompt_blind(&self, msg: &str) -> Result<String, ()> {
-        self.question(msg, QuestionStyle::Secret)
-    }
-    fn info(&self, msg: &str) -> Result<(), ()> {
-        self.question(msg, QuestionStyle::Info).map(|_| ())
-    }
-    fn error(&self, msg: &str) -> Result<(), ()> {
-        self.question(msg, QuestionStyle::Error).map(|_| ())
-    }
-}
-
-/// Process environment.d folders to generate the configured environment for
-/// the session.
-fn generate_user_environment(pam: &mut PamSession, home: String) -> Result<(), Box<dyn Error>> {
-    let dirs = [
-        "/usr/lib/environments.d/",
-        "/usr/local/lib/environments.d/",
-        "/run/environments.d/",
-        "/etc/environments.d/",
-        &format!("{}/.config/environment.d", home),
-    ];
-
-    let mut env: HashMap<String, String> = HashMap::new();
-    for dir in dirs.iter() {
-        let entries = match fs::read_dir(dir) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-
-        let mut filepaths: Vec<PathBuf> =
-            entries.filter_map(Result::ok).map(|e| e.path()).collect();
-
-        filepaths.sort();
-
-        for filepath in filepaths.into_iter() {
-            let reader = BufReader::new(match File::open(&filepath) {
-                Ok(f) => f,
-                Err(_) => continue,
-            });
-
-            for line in reader.lines().filter_map(Result::ok) {
-                let (key, value) = match split_env(&line) {
-                    Some(v) => v,
-                    None => continue,
-                };
-
-                if key.starts_with('#') {
-                    continue;
-                }
-
-                if !value.contains('$') {
-                    env.insert(key.to_string(), value.to_string());
-                    continue;
-                }
-
-                let reference = &value[1..];
-                let value = match env.get(reference) {
-                    Some(v) => v.to_string(),
-                    None => match pam.getenv(reference) {
-                        Some(pam_val) => match split_env(pam_val) {
-                            Some((_, new_value)) => new_value.to_string(),
-                            None => "".to_string(),
-                        },
-                        None => "".to_string(),
-                    },
-                };
-
-                env.insert(key.to_string(), value);
-            }
-        }
-    }
-
-    let env = env
-        .into_iter()
-        .map(|(key, value)| format!("{}={}", key, value));
-
-    for e in env {
-        pam.putenv(&e)
-            .map_err(|e| format!("unable to set PAM environment: {}", e))?;
-    }
-
-    Ok(())
-}
-
 /// The entry point for the session worker process. The session worker is
 /// responsible for the entirety of the session setup and execution. It is
 /// started by Session::start.
-pub fn session_worker(sock: &std::os::unix::net::UnixDatagram) -> Result<(), Box<dyn Error>> {
-    let mut data = [0; 1024];
+pub fn session_worker(sock: &UnixDatagram) -> Result<(), Box<dyn Error>> {
+    let mut data = [0; 10240];
     let len = sock
         .recv(&mut data[..])
         .map_err(|e| format!("unable to recieve message: {}", e))?;
@@ -251,11 +98,6 @@ pub fn session_worker(sock: &std::os::unix::net::UnixDatagram) -> Result<(), Box
     let pam_username = pam.get_user()?;
 
     let user = users::get_user_by_name(&pam_username).ok_or("unable to get user info")?;
-
-    // Clear the signal masking that was inherited from the parent.
-    blocked_sigset()
-        .thread_unblock()
-        .map_err(|e| format!("unable to unblock signals: {}", e))?;
 
     // Make this process a session leader.
     setsid().map_err(|e| format!("unable to become session leader: {}", e))?;
