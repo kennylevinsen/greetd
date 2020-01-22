@@ -21,6 +21,9 @@ pub struct Config {
 
     #[serde(default = "default_socket_path")]
     pub socket_path: String,
+
+    #[serde(skip_deserializing)]
+    pub session_worker: usize,
 }
 
 pub enum VtSelection {
@@ -83,6 +86,12 @@ pub fn read_config() -> Config {
                 .takes_value(true)
                 .help("config file to use"),
         )
+        .arg(
+            Arg::with_name("session-worker")
+                .long("session-worker")
+                .takes_value(true)
+                .help("start a session worker"),
+        )
         .get_matches();
 
     let mut config = match read_to_string(
@@ -103,6 +112,7 @@ pub fn read_config() -> Config {
             greeter: "".to_string(),
             greeter_user: "".to_string(),
             socket_path: default_socket_path(),
+            session_worker: 0,
         },
     };
 
@@ -121,6 +131,11 @@ pub fn read_config() -> Config {
     }
     if let Some(socket_path) = matches.value_of("socket-path") {
         config.socket_path = socket_path.to_string();
+    }
+    if let Some(session_worker) = matches.value_of("session-worker") {
+        config.session_worker = session_worker
+            .parse()
+            .expect("unable to parse session-worker fd");
     }
 
     if config.greeter.is_empty() {

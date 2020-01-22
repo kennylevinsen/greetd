@@ -1,18 +1,27 @@
-use std::error::Error;
-use std::ffi::CString;
-use std::io;
-use std::time::Duration;
+use std::{
+    error::Error,
+    ffi::CString,
+    time::{Duration, Instant},
+};
 
-use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::unistd::{alarm, execv, fork, ForkResult};
+use nix::{
+    sys::wait::{waitpid, WaitPidFlag, WaitStatus},
+    unistd::{alarm, execv, fork, ForkResult},
+};
 use tokio::{sync::RwLock, time::delay_for};
 
-use crate::session::{QuestionStyle as SessQuestionStyle, Session, SessionChild, SessionState};
+use crate::{
+    session::{Session, SessionChild, SessionState},
+    session_worker::QuestionStyle as SessQuestionStyle,
+};
 use greet_proto::{Question, QuestionStyle, ShutdownAction};
 
 pub struct ContextInner {
     current_session: Option<SessionChild>,
+    current_time: Instant,
+    current_is_greeter: bool,
     pending_session: Option<Session>,
+    pending_time: Instant,
 }
 
 /// Context keeps track of running sessions and start new ones.
@@ -45,7 +54,10 @@ impl Context {
         Context {
             inner: RwLock::new(ContextInner {
                 current_session: None,
+                current_time: Instant::now(),
+                current_is_greeter: false,
                 pending_session: None,
+                pending_time: Instant::now(),
             }),
             greeter_bin,
             greeter_user,
@@ -54,15 +66,17 @@ impl Context {
     }
 
     async fn create_greeter(&self) -> Result<SessionChild, Box<dyn Error>> {
-        let mut pending_session = Session::new(
-            "greeter",
-            "user",
-            &self.greeter_user,
-            vec![self.greeter_bin.to_string()],
-            vec![],
-            self.vt,
-        )
-        .await?;
+        let mut pending_session = Session::new_external()?;
+        pending_session
+            .initiate(
+                "greeter",
+                "user",
+                &self.greeter_user,
+                vec![self.greeter_bin.to_string()],
+                vec![],
+                self.vt,
+            )
+            .await?;
         match pending_session.get_state().await {
             Ok(SessionState::Ready) => (),
             Ok(SessionState::Question(_, _)) => {
@@ -82,11 +96,14 @@ impl Context {
             let inner = self.inner.read().await;
             if inner.current_session.is_some() {
                 eprintln!("session already active");
-                return Err(io::Error::new(io::ErrorKind::Other, "session already active").into());
+                return Err("session already active".into());
             }
         }
 
-        self.inner.write().await.current_session = Some(self.create_greeter().await?);
+        let mut inner = self.inner.write().await;
+        inner.current_session = Some(self.create_greeter().await?);
+        inner.current_time = Instant::now();
+        inner.current_is_greeter = true;
         Ok(())
     }
 
@@ -100,13 +117,17 @@ impl Context {
             let inner = self.inner.read().await;
             if inner.current_session.is_none() {
                 eprintln!("login request requires active session");
-                return Err(io::Error::new(io::ErrorKind::Other, "session not active").into());
+                return Err("session not active".into());
             }
         }
 
-        let pending_session =
-            Session::new("login", "user", &username, cmd, provided_env, self.vt).await?;
-        self.inner.write().await.pending_session = Some(pending_session);
+        let mut pending_session = Session::new_external()?;
+        pending_session
+            .initiate("login", "user", &username, cmd, provided_env, self.vt)
+            .await?;
+        let mut inner = self.inner.write().await;
+        inner.pending_session = Some(pending_session);
+        inner.pending_time = Instant::now();
 
         Ok(())
     }
@@ -171,7 +192,7 @@ impl Context {
             let inner = self.inner.read().await;
             if inner.current_session.is_none() {
                 eprintln!("shutdown request not valid when greeter is not active");
-                return Err(io::Error::new(io::ErrorKind::Other, "greeter not active").into());
+                return Err("greeter not active".into());
             }
         }
 
@@ -193,7 +214,7 @@ impl Context {
         let mut inner = self.inner.write().await;
         if let Some(mut p) = inner.pending_session.take() {
             if let Some(g) = inner.current_session.take() {
-                if p.elapsed() > Duration::from_secs(10) {
+                if inner.pending_time.elapsed() > Duration::from_secs(10) {
                     // We're out of patience.
                     g.kill();
                 } else {
@@ -212,6 +233,8 @@ impl Context {
             };
             let mut inner = self.inner.write().await;
             inner.current_session = Some(s);
+            inner.current_is_greeter = false;
+            inner.current_time = Instant::now();
         }
 
         Ok(())
@@ -228,13 +251,9 @@ impl Context {
                 // We got an exit, see if it's something we need to clean up.
                 Ok(WaitStatus::Exited(pid, ..)) | Ok(WaitStatus::Signaled(pid, ..)) => {
                     let mut inner = self.inner.write().await;
-                    let was_greeter;
-                    let elapsed;
                     match &inner.current_session {
                         Some(session) if session.owns_pid(pid) => {
                             eprintln!("session exited");
-                            was_greeter = session.get_service() == "greeter";
-                            elapsed = session.elapsed();
                             inner.current_session = None;
                         }
                         _ => continue,
@@ -254,12 +273,16 @@ impl Context {
                             };
                             let mut inner = self.inner.write().await;
                             inner.current_session = Some(s);
+                            inner.current_is_greeter = false;
+                            inner.current_time = Instant::now();
                         }
-                        None if !was_greeter => {
-                            if elapsed < Duration::from_secs(1) {
+                        None if !inner.current_is_greeter => {
+                            if inner.current_time.elapsed() < Duration::from_secs(1) {
                                 delay_for(Duration::from_secs(1)).await;
                             }
                             inner.current_session = Some(self.create_greeter().await?);
+                            inner.current_is_greeter = true;
+                            inner.current_time = Instant::now();
                         }
                         None => {
                             // Greeter died on us, let's just die with it.
@@ -284,11 +307,11 @@ impl Context {
     /// SIGTERM.
     pub async fn terminate(&self) -> Result<(), Box<dyn Error>> {
         let mut inner = self.inner.write().await;
-        if let Some(sess) = &inner.current_session {
-            sess.shoo();
-        }
-        if let Some(sess) = &mut inner.pending_session {
+        if let Some(mut sess) = inner.pending_session.take() {
             let _ = sess.post_answer(None).await;
+        }
+        if let Some(sess) = inner.current_session.take() {
+            sess.shoo();
         }
         Err("terminating".into())
     }

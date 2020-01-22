@@ -3,9 +3,18 @@ mod context;
 mod pam;
 mod scrambler;
 mod session;
+mod session_worker;
 mod terminal;
 
-use std::{error::Error, io, rc::Rc};
+use std::{
+    error::Error,
+    io,
+    os::unix::{
+        io::{FromRawFd, RawFd},
+        net::UnixDatagram,
+    },
+    rc::Rc,
+};
 
 use nix::{
     sys::mman::{mlockall, MlockAllFlags},
@@ -22,7 +31,10 @@ use tokio::{
 
 use greet_proto::{Failure, Header, Request, Response};
 
-use crate::{config::VtSelection, context::Context, scrambler::Scrambler, terminal::Terminal};
+use crate::{
+    config::VtSelection, context::Context, scrambler::Scrambler, session_worker::session_worker,
+    terminal::Terminal,
+};
 
 fn reset_vt(vt: usize) -> Result<(), Box<dyn Error>> {
     let term = Terminal::open(vt)?;
@@ -104,29 +116,31 @@ async fn client(ctx: Rc<Context>, mut s: UnixStream) -> Result<(), Box<dyn Error
     }
 }
 
-#[tokio::main]
-async fn main() {
-    mlockall(MlockAllFlags::all()).expect("unable to lock pages");
-
-    let config = config::read_config();
-
+async fn server_main(config: config::Config) -> Result<(), Box<dyn Error>> {
     eprintln!("starting greetd");
 
     std::env::set_var("GREETD_SOCK", &config.socket_path);
 
     let _ = std::fs::remove_file(config.socket_path.clone());
-    let mut listener = UnixListener::bind(&config.socket_path).expect("unable to create listener");
+    let mut listener = UnixListener::bind(&config.socket_path)
+        .map_err(|e| format!("unable to open listener: {}", e))?;
 
-    let u = users::get_user_by_name(&config.greeter_user).expect("unable to get user struct");
+    let u = users::get_user_by_name(&config.greeter_user).ok_or("unable to get user struct")?;
+
     let uid = Uid::from_raw(u.uid());
     let gid = Gid::from_raw(u.primary_group_id());
     chown(config.socket_path.as_str(), Some(uid), Some(gid))
-        .expect("unable to chown greetd socket");
+        .map_err(|e| format!("unable to chown greetd socket: {}", e))?;
 
-    let term = Terminal::open(0).expect("unable to open controlling terminal");
+    let term = Terminal::open(0).map_err(|e| format!("unable to open terminal: {}", e))?;
+
     let vt = match config.vt() {
-        VtSelection::Current => term.vt_get_current().expect("unable to get current VT"),
-        VtSelection::Next => term.vt_get_next().expect("unable to get next VT"),
+        VtSelection::Current => term
+            .vt_get_current()
+            .map_err(|e| format!("unable to get current VT: {}", e))?,
+        VtSelection::Next => term
+            .vt_get_next()
+            .map_err(|e| format!("unable to get next VT: {}", e))?,
         VtSelection::Specific(v) => v,
     };
     drop(term);
@@ -134,58 +148,77 @@ async fn main() {
     let ctx = Rc::new(Context::new(config.greeter, config.greeter_user, vt));
     if let Err(e) = ctx.greet().await {
         eprintln!("unable to start greeter: {}", e);
-        reset_vt(vt).expect("unable to reset vt");
+        reset_vt(vt).map_err(|e| format!("unable to reset VT: {}", e))?;
+
         std::process::exit(1);
     }
 
     let mut incoming = listener.incoming();
 
+    let alarm_ctx = ctx.clone();
+    task::spawn_local(async move {
+        let mut alarm = signal(SignalKind::alarm()).expect("unable to listen for SIGALRM");
+        loop {
+            alarm.recv().await;
+            alarm_ctx.alarm().await.expect("unable to read alarm");
+        }
+    });
+
+    let child_ctx = ctx.clone();
+    task::spawn_local(async move {
+        let mut child = signal(SignalKind::child()).expect("unable to listen for SIGCHLD");
+        loop {
+            child.recv().await;
+            child_ctx
+                .check_children()
+                .await
+                .expect("unable to check children");
+        }
+    });
+
+    let term_ctx = ctx.clone();
+    task::spawn_local(async move {
+        let mut term = signal(SignalKind::terminate()).expect("unable to listen for SIGTERM");
+        loop {
+            term.recv().await;
+            term_ctx.terminate().await.expect("unable to terminate");
+        }
+    });
+
+    while let Some(stream) = incoming.next().await {
+        match stream {
+            Ok(stream) => {
+                let ctx1 = ctx.clone();
+                task::spawn_local(async move {
+                    if let Err(e) = client(ctx1, stream).await {
+                        eprintln!("client loop failed: {}", e);
+                    }
+                });
+            }
+            Err(e) => eprintln!("accept failed: {}", e),
+        }
+    }
+    Ok(())
+}
+
+async fn session_worker_main(config: config::Config) -> Result<(), Box<dyn Error>> {
+    let sock = unsafe { UnixDatagram::from_raw_fd(config.session_worker as RawFd) };
+    session_worker(&sock)
+}
+
+#[tokio::main]
+async fn main() {
+    mlockall(MlockAllFlags::all()).expect("unable to lock pages");
+    let config = config::read_config();
     task::LocalSet::new()
         .run_until(async move {
-            let alarm_ctx = ctx.clone();
-            task::spawn_local(async move {
-                let mut alarm = signal(SignalKind::alarm()).expect("unable to listen for SIGALRM");
-                loop {
-                    alarm.recv().await;
-                    alarm_ctx.alarm().await.expect("unable to read alarm");
+            if config.session_worker > 0 {
+                if let Err(e) = session_worker_main(config).await {
+                    eprintln!("error: {}", e);
                 }
-            });
-
-            let child_ctx = ctx.clone();
-            task::spawn_local(async move {
-                let mut child = signal(SignalKind::child()).expect("unable to listen for SIGCHLD");
-                loop {
-                    child.recv().await;
-                    child_ctx
-                        .check_children()
-                        .await
-                        .expect("unable to check children");
-                }
-            });
-
-            let term_ctx = ctx.clone();
-            task::spawn_local(async move {
-                let mut term =
-                    signal(SignalKind::terminate()).expect("unable to listen for SIGTERM");
-                loop {
-                    term.recv().await;
-                    term_ctx.terminate().await.expect("unable to terminate");
-                }
-            });
-
-            while let Some(stream) = incoming.next().await {
-                match stream {
-                    Ok(stream) => {
-                        let ctx1 = ctx.clone();
-                        task::spawn_local(async move {
-                            if let Err(e) = client(ctx1, stream).await {
-                                eprintln!("client loop failed: {}", e);
-                            }
-                        });
-                    }
-                    Err(e) => eprintln!("accept failed: {}", e),
-                }
+            } else if let Err(e) = server_main(config).await {
+                eprintln!("error: {}", e);
             }
         })
-        .await;
+        .await
 }
