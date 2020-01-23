@@ -74,7 +74,7 @@ pub fn read_config() -> Config {
     let mut config = match read_to_string(
         matches
             .opt_str("config")
-            .unwrap_or("/etc/greetd/config.toml".to_string()),
+            .unwrap_or_else(|| "/etc/greetd/config.toml".to_string()),
     ) {
         Ok(s) => match toml::from_str(&s) {
             Ok(v) => v,
