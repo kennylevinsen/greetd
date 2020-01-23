@@ -61,21 +61,49 @@ pub enum ShutdownAction {
     Exit,
 }
 
+/// A request from a greeter to greetd.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[serde(tag = "type")]
 pub enum Request {
-    Initiate {
+    /// CreateSession initiates a login attempt for the given user.
+    /// CreateSession returns either a Response::Question, Response::Success or
+    /// Response::Failure.
+    ///
+    /// If a question is returned, it should be answered with a
+    /// Request::AnswerAuthQuestion. If a success is returned, the session can
+    /// then be started with Request::StartSession.
+    ///
+    /// If a login flow needs to be aborted at any point, send
+    /// Request::CancelSession. Note that the session is cancelled
+    /// automatically on error.
+    CreateSession {
         username: String,
+    },
+
+    /// AnswerAuthQuestion answers the last auth question, and returns either
+    /// a Response::Question, Response::Success or Response::Failure.
+    ///
+    /// If a question is returned, it should be answered with a
+    /// Request::AnswerAuthQuestion. If a success is returned, the session can
+    /// then be started with Request::StartSession.
+    AnswerAuthQuestion {
+        answer: Option<String>,
+    },
+
+    /// Start a successfully logged in session. This will fail if the session
+    /// has pending questions or has encountered an error.
+    StartSession {
         cmd: Vec<String>,
         env: Vec<String>,
     },
-    GetQuestion,
-    Answer {
-        answer: Option<String>,
-    },
-    Cancel,
-    Start,
+
+    /// Cancel a session. This can only be done if the session has not been
+    /// started. Cancel does not have to be called if an error has been
+    /// encountered in its setup or login flow.
+    CancelSession,
+
+    /// Execute a machine shutdown action.
     Shutdown {
         action: ShutdownAction,
     },
@@ -92,53 +120,53 @@ impl Request {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(tag = "error_type")]
 #[serde(rename_all = "snake_case")]
-pub enum Failure {
-    InitiateError {
-        description: String,
-    },
-    GetQuestionError {
-        description: String,
-    },
-    AnswerError {
-        description: String,
-    },
-    StartError {
-        description: String,
-    },
-    CancelError {
-        description: String,
-    },
-    ShutdownError {
-        action: ShutdownAction,
-        description: String,
-    },
+pub enum ErrorType {
+    /// A generic error. See the error description for more details.
+    Error,
+
+    /// An error caused by failed authentication.
+    AuthError,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QuestionStyle {
+    /// A question whose answer should be visible during input.
     Visible,
+
+    /// A question whose answer should be kept secret during input.
     Secret,
+
+    /// An information message.
     Info,
+
+    /// An error message.
     Error,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub struct Question {
-    pub msg: String,
-    pub style: QuestionStyle,
-}
-
+/// A response from greetd to a greeter.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 pub enum Response {
+    /// The request was successful.
     Success,
-    Question { next_question: Option<Question> },
-    Failure(Failure),
+
+    /// The request failed. See the type and/or description for more
+    /// information about this failure.
+    Error { error_type: ErrorType, description: String },
+
+    /// An authentication question needs to be answered to continue through the
+    /// authentication flow.
+    ///
+    /// An authentication question can consist of anything. While it will
+    /// commonly just be a request for the users' password, it could also ask
+    /// for TOTP codes, or whether or not you felt sad when Littlefoot's mother
+    /// died in the original "Land Before Time". It is therefore important that
+    /// no assumptions are made about the questions that will be asked, and
+    /// attempts to automatically answer these questions should not be made.
+    AuthQuestion{ question: String, style: QuestionStyle },
 }
 
 impl Response {

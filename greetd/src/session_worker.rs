@@ -27,22 +27,23 @@ pub enum ParentToSessionChild {
         service: String,
         class: String,
         user: String,
-        vt: usize,
-        env: Vec<String>,
-        cmd: Vec<String>,
     },
     PamResponse {
         resp: String,
     },
     Cancel,
-    Start,
+    Start{
+        vt: usize,
+        env: Vec<String>,
+        cmd: Vec<String>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SessionChildToParent {
     PamMessage { style: QuestionStyle, msg: String },
     PamAuthSuccess,
-    Error { error: String },
+    PamAuthError { error: String },
     FinalChildPid(u64),
 }
 
@@ -56,15 +57,12 @@ pub fn session_worker(sock: &UnixDatagram) -> Result<(), Box<dyn Error>> {
         .map_err(|e| format!("unable to recieve message: {}", e))?;
     let msg = serde_json::from_slice(&data[..len])
         .map_err(|e| format!("unable to deserialize message: {}", e))?;
-    let (service, class, user, vt, env, cmd) = match msg {
+    let (service, class, user) = match msg {
         ParentToSessionChild::InitiateLogin {
             service,
             class,
             user,
-            vt,
-            env,
-            cmd,
-        } => (service, class, user, vt, env, cmd),
+        } => (service, class, user),
         ParentToSessionChild::Cancel => return Err("cancelled".into()),
         _ => return Err("unexpected message".into()),
     };
@@ -77,7 +75,7 @@ pub fn session_worker(sock: &UnixDatagram) -> Result<(), Box<dyn Error>> {
         .authenticate(PamFlag::NONE)
         .and_then(|_| pam.acct_mgmt(PamFlag::NONE))
     {
-        let msg = SessionChildToParent::Error {
+        let msg = SessionChildToParent::PamAuthError {
             error: pam.strerror().unwrap_or("unknown error").to_string(),
         };
         let out =
@@ -98,11 +96,15 @@ pub fn session_worker(sock: &UnixDatagram) -> Result<(), Box<dyn Error>> {
         .map_err(|e| format!("unable to recieve message: {}", e))?;
     let msg = serde_json::from_slice(&data[..len])
         .map_err(|e| format!("unable to deserialize message: {}", e))?;
-    match msg {
-        ParentToSessionChild::Start => (),
+    let (vt, env, cmd) = match msg {
+        ParentToSessionChild::Start{
+            vt,
+            env,
+            cmd
+        } => (vt, env, cmd),
         ParentToSessionChild::Cancel => return Err("cancelled".into()),
         _ => return Err("unexpected message".into()),
-    }
+    };
 
     let pam_username = pam.get_user()?;
 

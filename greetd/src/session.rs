@@ -78,6 +78,7 @@ impl SessionChild {
 pub enum SessionState {
     Question(QuestionStyle, String),
     Ready,
+    AuthError(String),
 }
 
 /// A device to initiate a logged in PAM session.
@@ -116,17 +117,11 @@ impl Session {
         service: &str,
         class: &str,
         user: &str,
-        cmd: Vec<String>,
-        env: Vec<String>,
-        vt: usize,
     ) -> Result<(), Box<dyn Error>> {
         let msg = ParentToSessionChild::InitiateLogin {
             service: service.to_string(),
             class: class.to_string(),
             user: user.to_string(),
-            vt,
-            env,
-            cmd,
         };
         let data = serde_json::to_vec(&msg)?;
         self.sock
@@ -154,7 +149,7 @@ impl Session {
                 Ok(SessionState::Question(style, msg))
             }
             SessionChildToParent::PamAuthSuccess => Ok(SessionState::Ready),
-            SessionChildToParent::Error { error } => Err(error.into()),
+            SessionChildToParent::PamAuthError { error } => Ok(SessionState::AuthError(error)),
             _ => Err("unexpected message from session worker".into()),
         }
     }
@@ -173,8 +168,11 @@ impl Session {
     ///
     /// Start the session described within the Session.
     ///
-    pub async fn start(&mut self) -> Result<SessionChild, Box<dyn Error>> {
-        let msg = ParentToSessionChild::Start;
+    pub async fn start(&mut self,
+        cmd: Vec<String>,
+        env: Vec<String>,
+        vt: usize) -> Result<SessionChild, Box<dyn Error>> {
+        let msg = ParentToSessionChild::Start{ vt, env, cmd };
         let data = serde_json::to_vec(&msg)
             .map_err(|e| format!("unable to serialize worker process request: {}", e))?;
         self.sock
@@ -194,7 +192,7 @@ impl Session {
         self.sock.shutdown(std::net::Shutdown::Both)?;
 
         let sub_task = match msg {
-            SessionChildToParent::Error { error } => return Err(error.into()),
+            SessionChildToParent::PamAuthError { error } => return Err(error.into()),
             SessionChildToParent::FinalChildPid(raw_pid) => Pid::from_raw(raw_pid as i32),
             _ => panic!("unexpected message"),
         };

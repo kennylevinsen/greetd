@@ -14,14 +14,22 @@ use crate::{
     session::{Session, SessionChild, SessionState},
     session_worker::QuestionStyle as SessQuestionStyle,
 };
-use greet_proto::{Question, QuestionStyle, ShutdownAction};
+use greet_proto::{QuestionStyle, ShutdownAction};
 
-pub struct ContextInner {
+struct PendingArgs {
+    env: Vec<String>,
+    cmd: Vec<String>,
+    vt: usize,
+}
+
+struct ContextInner {
     current_session: Option<SessionChild>,
     current_time: Instant,
     current_is_greeter: bool,
+
     pending_session: Option<Session>,
     pending_time: Instant,
+    pending_args: Option<PendingArgs>,
 }
 
 /// Context keeps track of running sessions and start new ones.
@@ -58,6 +66,7 @@ impl Context {
                 current_is_greeter: false,
                 pending_session: None,
                 pending_time: Instant::now(),
+                pending_args: None,
             }),
             greeter_bin,
             greeter_user,
@@ -72,9 +81,6 @@ impl Context {
                 "greeter",
                 "user",
                 &self.greeter_user,
-                vec![self.greeter_bin.to_string()],
-                vec![],
-                self.vt,
             )
             .await?;
         match pending_session.get_state().await {
@@ -82,9 +88,12 @@ impl Context {
             Ok(SessionState::Question(_, _)) => {
                 return Err("session start failed: unexpected question".into())
             }
+            Ok(SessionState::AuthError(error)) => {
+                return Err(format!("session start failed: unexpected auth error: {}", error).into())
+            }
             Err(err) => return Err(format!("session start failed: {}", err).into()),
         }
-        match pending_session.start().await {
+        match pending_session.start(vec![self.greeter_bin.to_string()], vec![], self.vt).await {
             Ok(s) => Ok(s),
             Err(e) => Err(format!("session start failed: {}", e).into()),
         }
@@ -107,12 +116,7 @@ impl Context {
         Ok(())
     }
 
-    pub async fn initiate(
-        &self,
-        username: String,
-        cmd: Vec<String>,
-        provided_env: Vec<String>,
-    ) -> Result<(), Box<dyn Error>> {
+    pub async fn create_session(&self, username: String) -> Result<(), Box<dyn Error>> {
         {
             let inner = self.inner.read().await;
             if inner.current_session.is_none() {
@@ -123,7 +127,7 @@ impl Context {
 
         let mut pending_session = Session::new_external()?;
         pending_session
-            .initiate("login", "user", &username, cmd, provided_env, self.vt)
+            .initiate("login", "user", &username)
             .await?;
         let mut inner = self.inner.write().await;
         inner.pending_session = Some(pending_session);
@@ -140,20 +144,18 @@ impl Context {
         Ok(())
     }
 
-    pub async fn get_question(&self) -> Result<Option<Question>, Box<dyn Error>> {
+    pub async fn get_question(&self) -> Result<Option<(QuestionStyle, String)>, Box<dyn Error>> {
         let mut inner = self.inner.write().await;
         match &mut inner.pending_session {
             Some(s) => match s.get_state().await? {
                 SessionState::Ready => Ok(None),
-                SessionState::Question(style, string) => Ok(Some(Question {
-                    msg: string,
-                    style: match style {
-                        SessQuestionStyle::Visible => QuestionStyle::Visible,
-                        SessQuestionStyle::Secret => QuestionStyle::Secret,
-                        SessQuestionStyle::Info => QuestionStyle::Info,
-                        SessQuestionStyle::Error => QuestionStyle::Error,
-                    },
-                })),
+                SessionState::AuthError(msg) => Err(msg.into()),
+                SessionState::Question(style, string) => Ok(Some((match style {
+                    SessQuestionStyle::Visible => QuestionStyle::Visible,
+                    SessQuestionStyle::Secret => QuestionStyle::Secret,
+                    SessQuestionStyle::Info => QuestionStyle::Info,
+                    SessQuestionStyle::Error => QuestionStyle::Error,
+                }, string))),
             },
             None => Err("no session active".into()),
         }
@@ -167,7 +169,7 @@ impl Context {
         }
     }
 
-    pub async fn start(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn start(&self, cmd: Vec<String>, env: Vec<String>) -> Result<(), Box<dyn Error>> {
         let mut inner = self.inner.write().await;
         match &mut inner.pending_session {
             Some(s) => {
@@ -177,6 +179,11 @@ impl Context {
                         // we lose patience and shoot it in the back repeatedly. This is all
                         // handled by our alarm handler.
                         alarm::set(5);
+                        inner.pending_args = Some(PendingArgs{
+                            cmd: cmd,
+                            env: env,
+                            vt: self.vt,
+                        });
 
                         Ok(())
                     }
@@ -226,8 +233,12 @@ impl Context {
                 alarm::set(1);
                 return Ok(());
             }
+            let args = match inner.pending_args.take() {
+                Some(a) => a,
+                None => return Err(format!("no known args for this session").into())
+            };
             drop(inner);
-            let s = match p.start().await {
+            let s = match p.start(args.cmd, args.env, args.vt).await {
                 Ok(s) => s,
                 Err(e) => return Err(format!("session start failed: {}", e).into()),
             };
@@ -264,8 +275,12 @@ impl Context {
                             eprintln!("starting pending session");
                             // Our greeter finally bit the dust so we can
                             // start our pending session.
+                            let args = match inner.pending_args.take() {
+                                Some(a) => a,
+                                None => return Err(format!("no known args for this session").into())
+                            };
                             drop(inner);
-                            let s = match pending_session.start().await {
+                            let s = match pending_session.start(args.cmd, args.env, args.vt).await {
                                 Ok(s) => s,
                                 Err(e) => {
                                     return Err(format!("session start failed: {}", e).into());

@@ -8,7 +8,7 @@ use ini::Ini;
 use nix::sys::utsname::uname;
 use rpassword::prompt_password_stderr;
 
-use greet_proto::{Header, Question, QuestionStyle, Request, Response};
+use greet_proto::{Header, QuestionStyle, Request, Response};
 
 fn prompt_stderr(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     let stdin = io::stdin();
@@ -56,86 +56,10 @@ fn login(node: &str, cmd: &Option<String>) -> Result<(), Box<dyn std::error::Err
         None => prompt_stderr("Command: ")?,
     };
 
-    let request = Request::Initiate {
-        username,
-        env: vec![
-            format!("XDG_SESSION_DESKTOP={}", &command),
-            format!("XDG_CURRENT_DESKTOP={}", &command),
-        ],
-        cmd: vec![command],
-    };
-
-    // Write request
-    let req = request.to_bytes()?;
-
-    let header = Header::new(req.len() as u32);
-
     let mut stream = UnixStream::connect(env::var("GREETD_SOCK")?)?;
-    stream.write_all(&header.to_bytes()?)?;
-    stream.write_all(&req)?;
-
-    // Read response
-    let mut header_buf = vec![0; Header::len()];
-    stream.read_exact(&mut header_buf)?;
-    let header = Header::from_slice(&header_buf)?;
-
-    let mut resp_buf = vec![0; header.len as usize];
-    stream.read_exact(&mut resp_buf)?;
-    let resp = Response::from_slice(&resp_buf)?;
-
-    match resp {
-        Response::Success => (),
-        Response::Failure(err) => return Err(format!("login error: {:?}", err).into()),
-        _ => return Err("unexpected response".into()),
-    }
-
+    let mut request = Request::CreateSession { username };
+    let mut starting = false;
     loop {
-        let request = Request::GetQuestion;
-        let req = request.to_bytes()?;
-        let header = Header::new(req.len() as u32);
-        stream.write_all(&header.to_bytes()?)?;
-        stream.write_all(&req)?;
-
-        // Read response
-        let mut header_buf = vec![0; Header::len()];
-        stream.read_exact(&mut header_buf)?;
-        let header = Header::from_slice(&header_buf)?;
-
-        let mut resp_buf = vec![0; header.len as usize];
-        stream.read_exact(&mut resp_buf)?;
-        let resp = Response::from_slice(&resp_buf)?;
-
-        let mut starting = false;
-
-        let request = match resp {
-            Response::Question { next_question } => match next_question {
-                Some(Question { msg, style }) => {
-                    let answer = match style {
-                        QuestionStyle::Visible => prompt_stderr(&msg)?,
-                        QuestionStyle::Secret => prompt_password_stderr(&msg)?,
-                        QuestionStyle::Info => {
-                            eprintln!("info: {}", msg);
-                            "".to_string()
-                        }
-                        QuestionStyle::Error => {
-                            eprintln!("error: {}", msg);
-                            "".to_string()
-                        }
-                    };
-
-                    Request::Answer {
-                        answer: Some(answer),
-                    }
-                }
-                None => {
-                    starting = true;
-                    Request::Start
-                }
-            },
-            Response::Failure(err) => return Err(format!("login error: {:?}", err).into()),
-            _ => return Err("unexpected response".into()),
-        };
-
         let req = request.to_bytes()?;
         let header = Header::new(req.len() as u32);
         stream.write_all(&header.to_bytes()?)?;
@@ -151,13 +75,36 @@ fn login(node: &str, cmd: &Option<String>) -> Result<(), Box<dyn std::error::Err
         let resp = Response::from_slice(&resp_buf)?;
 
         match resp {
-            Response::Success => (),
-            Response::Failure(err) => return Err(format!("login error: {:?}", err).into()),
-            _ => return Err("unexpected response".into()),
-        }
+            Response::AuthQuestion { question, style } => {
+                let answer = match style {
+                    QuestionStyle::Visible => prompt_stderr(&question)?,
+                    QuestionStyle::Secret => prompt_password_stderr(&question)?,
+                    QuestionStyle::Info => {
+                        eprintln!("info: {}", question);
+                        "".to_string()
+                    }
+                    QuestionStyle::Error => {
+                        eprintln!("error: {}", question);
+                        "".to_string()
+                    }
+                };
 
-        if starting {
-            break;
+                request = Request::AnswerAuthQuestion { answer: Some(answer) };
+            },
+            Response::Success => match starting {
+                true => break,
+                false => {
+                    starting = true;
+                    request = Request::StartSession {
+                        env: vec![
+                            format!("XDG_SESSION_DESKTOP={}", &command),
+                            format!("XDG_CURRENT_DESKTOP={}", &command),
+                        ],
+                        cmd: vec![command.to_string()],
+                    }
+                }
+            },
+            Response::Error{ error_type: _, description } => return Err(format!("login error: {:?}", description).into()),
         }
     }
     Ok(())

@@ -31,7 +31,7 @@ use tokio::{
     task,
 };
 
-use greet_proto::{Failure, Header, Request, Response};
+use greet_proto::{Header, Request, Response, ErrorType};
 
 use crate::{
     config::VtSelection, context::Context, scrambler::Scrambler, session_worker::session_worker,
@@ -64,44 +64,39 @@ async fn client(ctx: Rc<Context>, mut s: UnixStream) -> Result<(), Box<dyn Error
         body_bytes.scramble();
 
         let resp = match req {
-            Request::Initiate { username, cmd, env } => {
-                match ctx.initiate(username, cmd, env).await {
-                    Ok(_) => Response::Success,
-                    Err(e) => Response::Failure(Failure::InitiateError {
-                        description: format!("{}", e),
-                    }),
+            Request::CreateSession { username} => {
+                match ctx.create_session(username).await {
+                    Ok(()) => {
+                        match ctx.get_question().await {
+                            Ok(Some((style, msg))) => Response::AuthQuestion{ style, question: msg },
+                            Ok(None) => Response::Success,
+                            Err(e) => Response::Error{ error_type: ErrorType::AuthError, description: format!("{}", e) },
+                        }
+                    }
+                    Err(e) => Response::Error{ error_type: ErrorType::Error, description: format!("{}", e)},
                 }
             }
-            Request::Start => match ctx.start().await {
-                Ok(_) => Response::Success,
-                Err(e) => Response::Failure(Failure::StartError {
-                    description: format!("{}", e),
-                }),
+            Request::AnswerAuthQuestion { answer } => match ctx.post_answer(answer).await {
+                Ok(()) => {
+                    match ctx.get_question().await {
+                        Ok(Some((style, msg))) => Response::AuthQuestion{ style, question: msg },
+                        Ok(None) => Response::Success,
+                        Err(e) => Response::Error{ error_type: ErrorType::AuthError, description: format!("{}", e) },
+                    }
+                }
+                Err(e) => Response::Error{ error_type: ErrorType::Error, description: format!("{}", e)},
             },
-            Request::GetQuestion => match ctx.get_question().await {
-                Ok(v) => Response::Question { next_question: v },
-                Err(e) => Response::Failure(Failure::GetQuestionError {
-                    description: format!("{}", e),
-                }),
-            },
-            Request::Cancel => match ctx.cancel().await {
+            Request::StartSession { cmd, env } => match ctx.start(cmd, env).await {
                 Ok(_) => Response::Success,
-                Err(e) => Response::Failure(Failure::CancelError {
-                    description: format!("{}", e),
-                }),
+                Err(e) => Response::Error{ error_type: ErrorType::Error, description: format!("{}", e)},
             },
-            Request::Answer { answer } => match ctx.post_answer(answer).await {
+            Request::CancelSession => match ctx.cancel().await {
                 Ok(_) => Response::Success,
-                Err(e) => Response::Failure(Failure::AnswerError {
-                    description: format!("{}", e),
-                }),
+                Err(e) => Response::Error{ error_type: ErrorType::Error, description: format!("{}", e)},
             },
             Request::Shutdown { action } => match ctx.shutdown(action).await {
                 Ok(_) => Response::Success,
-                Err(e) => Response::Failure(Failure::ShutdownError {
-                    action,
-                    description: format!("{}", e),
-                }),
+                Err(e) => Response::Error{ error_type: ErrorType::Error, description: format!("{}", e)},
             },
         };
 
