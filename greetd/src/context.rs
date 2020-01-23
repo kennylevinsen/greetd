@@ -276,17 +276,13 @@ impl Context {
                             inner.current_is_greeter = false;
                             inner.current_time = Instant::now();
                         }
-                        None if !inner.current_is_greeter => {
+                        None => {
                             if inner.current_time.elapsed() < Duration::from_secs(1) {
                                 delay_for(Duration::from_secs(1)).await;
                             }
                             inner.current_session = Some(self.create_greeter().await?);
                             inner.current_is_greeter = true;
                             inner.current_time = Instant::now();
-                        }
-                        None => {
-                            // Greeter died on us, let's just die with it.
-                            return Err("greeter died with no pending session".into());
                         }
                     }
                 }

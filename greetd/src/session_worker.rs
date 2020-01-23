@@ -73,10 +73,19 @@ pub fn session_worker(sock: &UnixDatagram) -> Result<(), Box<dyn Error>> {
     let mut pam = PamSession::start(&service, &user, conv)
         .map_err(|e| format!("unable to initiate PAM session: {}", e))?;
 
-    pam.authenticate(PamFlag::NONE)
-        .map_err(|e| format!("unable to authenticate account: {}", e))?;
-    pam.acct_mgmt(PamFlag::NONE)
-        .map_err(|e| format!("unable to validate account: {}", e))?;
+    if let Err(e) = pam
+        .authenticate(PamFlag::NONE)
+        .and_then(|_| pam.acct_mgmt(PamFlag::NONE))
+    {
+        let msg = SessionChildToParent::Error {
+            error: pam.strerror().unwrap_or("unknown error").to_string(),
+        };
+        let out =
+            serde_json::to_vec(&msg).map_err(|e| format!("unable to serialize message: {}", e))?;
+        sock.send(&out)
+            .map_err(|e| format!("unable to send message: {}", e))?;
+        return Err(e);
+    }
 
     let msg = SessionChildToParent::PamAuthSuccess;
     let out =

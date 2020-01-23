@@ -133,4 +133,8 @@ impl<'a> PamSession<'a> {
             _ => Err(io::Error::new(io::ErrorKind::Other, "unable to end pam session").into()),
         }
     }
+
+    pub fn strerror(&mut self) -> Option<&str> {
+        pam_sys::strerror(self.handle, self.last_code)
+    }
 }
