@@ -60,7 +60,7 @@ pub fn read_config() -> Config {
     opts.optflag("g", "greeter", "greeter to run");
     opts.optflag("u", "greeter-user", "user to run greeter as");
     opts.optflag("c", "config", "config file to use");
-    opts.optflag("", "session-worker", "start a session worker");
+    opts.optopt("w", "session-worker", "start a session worker", "FD");
     opts.optflag("h", "help", "print this help menu");
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
