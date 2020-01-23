@@ -3,7 +3,7 @@ use std::fs;
 use std::io::{self, BufRead, Read, Write};
 use std::os::unix::net::UnixStream;
 
-use clap::{crate_authors, crate_version, App, Arg};
+use getopts::Options;
 use ini::Ini;
 use nix::sys::utsname::uname;
 use rpassword::prompt_password_stderr;
@@ -49,7 +49,7 @@ fn get_issue() -> Result<String, Box<dyn std::error::Error>> {
         .replace("\\\\", "\\"))
 }
 
-fn login(node: &str, cmd: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+fn login(node: &str, cmd: &Option<String>) -> Result<(), Box<dyn std::error::Error>> {
     let username = prompt_stderr(&format!("{} login: ", node))?;
     let command = match cmd {
         Some(cmd) => cmd.to_string(),
@@ -163,30 +163,34 @@ fn login(node: &str, cmd: Option<&str>) -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
-fn main() {
-    let matches = App::new("simple_greet")
-        .version(crate_version!())
-        .author(crate_authors!())
-        .about("Simple greeter for greetd")
-        .arg(
-            Arg::with_name("command")
-                .short("c")
-                .long("cmd")
-                .takes_value(true)
-                .help("command to run"),
-        )
-        .arg(
-            Arg::with_name("max-failures")
-                .short("f")
-                .long("max-failures")
-                .takes_value(true)
-                .help("maximum number of accepted failures"),
-        )
-        .get_matches();
+fn print_usage(program: &str, opts: Options) {
+    let brief = format!("Usage: {} [options]", program);
+    print!("{}", opts.usage(&brief));
+}
 
-    let cmd = matches.value_of("command");
-    let max_failures: usize = match matches.value_of("max-failures").unwrap_or("5").parse() {
-        Ok(v) => v,
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    let program = args[0].clone();
+    let mut opts = Options::new();
+    opts.optflag("c", "cmd", "command to run");
+    opts.optflag("f", "max-failures", "maximum number of accepted failures");
+    opts.optflag("h", "help", "print this help menu");
+    let matches = match opts.parse(&args[1..]) {
+        Ok(m) => m,
+        Err(f) => {
+            println!("{}", f.to_string());
+            print_usage(&program, opts);
+            std::process::exit(1);
+        }
+    };
+    if matches.opt_present("h") {
+        print_usage(&program, opts);
+        std::process::exit(0);
+    }
+
+    let cmd = matches.opt_default("cmd", "");
+    let max_failures: usize = match matches.opt_get("max-failures") {
+        Ok(v) => v.unwrap_or(5),
         Err(e) => {
             eprintln!("unable to parse max failures: {}", e);
             std::process::exit(1)
@@ -199,7 +203,7 @@ fn main() {
 
     let uts = uname();
     for _ in 0..max_failures {
-        match login(uts.nodename(), cmd) {
+        match login(uts.nodename(), &cmd) {
             Ok(()) => {
                 break;
             }

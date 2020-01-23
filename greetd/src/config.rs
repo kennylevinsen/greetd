@@ -47,7 +47,7 @@ impl Config {
 }
 
 fn print_usage(program: &str, opts: Options) {
-    let brief = format!("Usage: {} FILE [options]", program);
+    let brief = format!("Usage: {} [options]", program);
     print!("{}", opts.usage(&brief));
 }
 
@@ -63,8 +63,8 @@ pub fn read_config() -> Config {
     opts.optflag("", "session-worker", "start a session worker");
     opts.optflag("h", "help", "print this help menu");
     let matches = match opts.parse(&args[1..]) {
-        Ok(m) => { m }
-        Err(f) => { panic!(f.to_string()) }
+        Ok(m) => m,
+        Err(f) => panic!(f.to_string()),
     };
     if matches.opt_present("h") {
         print_usage(&program, opts);
@@ -109,7 +109,10 @@ pub fn read_config() -> Config {
     if let Some(socket_path) = matches.opt_str("socket-path") {
         config.socket_path = socket_path;
     }
-    if let Some(session_worker) = matches.opt_get("session-worker").expect("unable to parse session-worker") {
+    if let Some(session_worker) = matches
+        .opt_get("session-worker")
+        .expect("unable to parse session-worker")
+    {
         config.session_worker = session_worker
     }
 

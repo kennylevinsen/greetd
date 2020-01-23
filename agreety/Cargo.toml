@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 greet_proto = { path = "../greet_proto" }
-clap = "2.33"
 rust-ini = "0.14"
 rpassword = "4.0"
+getopts = "0.2"
 nix = "0.16"
