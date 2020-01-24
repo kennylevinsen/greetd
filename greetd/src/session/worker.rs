@@ -1,8 +1,4 @@
-use std::{
-    env,
-    ffi::CString,
-    os::unix::net::UnixDatagram,
-};
+use std::{env, ffi::CString, os::unix::net::UnixDatagram};
 
 use nix::{
     sys::wait::waitpid,
@@ -270,7 +266,7 @@ pub fn main(sock: &UnixDatagram) -> Result<(), Error> {
             Err(e) => {
                 eprintln!("session: waitpid on inner child failed: {}", e);
                 break;
-            },
+            }
             Ok(_) => break,
         }
     }

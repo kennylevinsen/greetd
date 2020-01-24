@@ -21,7 +21,7 @@ use crate::error::Error;
 
 #[async_trait]
 trait AsyncRecv<T: Sized> {
-   async fn recv(sock: &mut TokioUnixDatagram) -> Result<T, Error>;
+    async fn recv(sock: &mut TokioUnixDatagram) -> Result<T, Error>;
 }
 
 #[async_trait]

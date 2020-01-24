@@ -16,8 +16,8 @@ impl<'a> SessionConv<'a> {
         msg.send(self.sock)
             .map_err(|e| eprintln!("pam_conv: {}", e))?;
 
-        let msg = ParentToSessionChild::recv(self.sock)
-            .map_err(|e| eprintln!("pam_conv: {}", e))?;
+        let msg =
+            ParentToSessionChild::recv(self.sock).map_err(|e| eprintln!("pam_conv: {}", e))?;
 
         match msg {
             ParentToSessionChild::PamResponse { resp, .. } => Ok(resp),

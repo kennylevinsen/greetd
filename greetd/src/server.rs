@@ -2,12 +2,12 @@ use std::{io, rc::Rc};
 
 use nix::unistd::{chown, Gid, Uid};
 use tokio::{
+    io as tokio_io,
     net::{UnixListener, UnixStream},
     prelude::*,
     signal::unix::{signal, SignalKind},
     stream::StreamExt,
     task,
-    io as tokio_io,
 };
 
 use crate::{
@@ -61,7 +61,8 @@ async fn client_handler(ctx: Rc<Context>, mut s: UnixStream) -> Result<(), Error
                 tokio_io::ErrorKind::UnexpectedEof => return Ok(()),
                 _ => Err(e),
             },
-        }.map_err(|e| format!("unable to read header: {}", e))?;
+        }
+        .map_err(|e| format!("unable to read header: {}", e))?;
 
         let header = Header::from_slice(&header_bytes)
             .map_err(|e| format!("unable to deserialize header: {}", e))?;
@@ -70,7 +71,8 @@ async fn client_handler(ctx: Rc<Context>, mut s: UnixStream) -> Result<(), Error
         }
 
         let mut body_bytes = vec![0; header.len as usize];
-        s.read_exact(&mut body_bytes[..]).await
+        s.read_exact(&mut body_bytes[..])
+            .await
             .map_err(|e| format!("unable to read body: {}", e))?;
 
         let req = Request::from_slice(&body_bytes)
