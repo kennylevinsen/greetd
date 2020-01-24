@@ -7,8 +7,12 @@ Conflicts=getty@tty2.service
 [Service]
 Type=simple
 ExecStart=greetd
+KillMode=mixed
+IgnoreSIGPIPE=no
+KeyringMode=shared
 StandardInput=tty
-StandardError=syslog
+StandardOutput=syslog
+StandardError=inherit
 TTYPath=/dev/tty2
 TTYReset=yes
 Restart=always
