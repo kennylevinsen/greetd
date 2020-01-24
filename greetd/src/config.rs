@@ -1,5 +1,4 @@
-use std::env;
-use std::fs::read_to_string;
+use std::{env, fs::read_to_string};
 
 use getopts::Options;
 use serde::Deserialize;
@@ -55,13 +54,13 @@ pub fn read_config() -> Config {
     let args: Vec<String> = env::args().collect();
     let program = args[0].clone();
     let mut opts = Options::new();
-    opts.optflag("t", "vt", "VT to run on");
-    opts.optflag("s", "socket-path", "socket path to use");
-    opts.optflag("g", "greeter", "greeter to run");
-    opts.optflag("u", "greeter-user", "user to run greeter as");
-    opts.optflag("c", "config", "config file to use");
-    opts.optopt("w", "session-worker", "start a session worker", "FD");
     opts.optflag("h", "help", "print this help menu");
+    opts.optopt("t", "vt", "VT to run on", "VT");
+    opts.optopt("s", "socket-path", "socket path to use", "SOCKET_PATH");
+    opts.optopt("g", "greeter", "greeter to run", "GREETER");
+    opts.optopt("u", "greeter-user", "user to run greeter as", "USER");
+    opts.optopt("c", "config", "config file to use", "CONFIG_FILE");
+    opts.optopt("w", "session-worker", "start a session worker", "FD");
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(f) => panic!(f.to_string()),

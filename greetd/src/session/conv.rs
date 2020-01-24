@@ -1,7 +1,5 @@
-use crate::{
-    pam::converse::Converse,
-    session_worker::{ParentToSessionChild, QuestionStyle, SessionChildToParent},
-};
+use super::worker::{ParentToSessionChild, QuestionStyle, SessionChildToParent};
+use crate::pam::converse::Converse;
 
 /// SessionConv is a PAM conversation implementation that forwards questions
 /// over a socket.
@@ -15,17 +13,11 @@ impl<'a> SessionConv<'a> {
             style,
             msg: msg.to_string(),
         };
-        let data = serde_json::to_vec(&msg).map_err(|e| eprintln!("pam_conv: {}", e))?;
-        self.sock
-            .send(&data)
+        msg.send(self.sock)
             .map_err(|e| eprintln!("pam_conv: {}", e))?;
 
-        let mut data = [0; 1024];
-        let len = self
-            .sock
-            .recv(&mut data[..])
+        let msg = ParentToSessionChild::recv(self.sock)
             .map_err(|e| eprintln!("pam_conv: {}", e))?;
-        let msg = serde_json::from_slice(&data[..len]).map_err(|e| eprintln!("pam_conv: {}", e))?;
 
         match msg {
             ParentToSessionChild::PamResponse { resp, .. } => Ok(resp),

@@ -1,20 +1,19 @@
-use std::{
-    error::Error,
-    ffi::CString,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use nix::{
     sys::wait::{waitpid, WaitPidFlag, WaitStatus},
-    unistd::{alarm, execv, fork, ForkResult},
+    unistd::alarm,
 };
 use tokio::{sync::RwLock, time::delay_for};
 
 use crate::{
-    session::{Session, SessionChild, SessionState},
-    session_worker::QuestionStyle as SessQuestionStyle,
+    error::Error,
+    session::{
+        interface::{Session, SessionChild, SessionState},
+        worker::QuestionStyle as SessQuestionStyle,
+    },
 };
-use greet_proto::{QuestionStyle, ShutdownAction};
+use greet_proto::QuestionStyle;
 
 struct PendingArgs {
     env: Vec<String>,
@@ -40,23 +39,6 @@ pub struct Context {
     vt: usize,
 }
 
-fn run(cmd: &str) -> Result<(), Box<dyn Error>> {
-    if let ForkResult::Child = fork()? {
-        let cpath = CString::new("/bin/sh").unwrap();
-        execv(
-            &cpath,
-            &[
-                &cpath,
-                &CString::new("-c").unwrap(),
-                &CString::new(cmd).unwrap(),
-            ],
-        )
-        .expect("unable to exec");
-        unreachable!("after exec");
-    }
-    Ok(())
-}
-
 impl Context {
     pub fn new(greeter_bin: String, greeter_user: String, vt: usize) -> Context {
         Context {
@@ -74,37 +56,29 @@ impl Context {
         }
     }
 
-    async fn create_greeter(&self) -> Result<SessionChild, Box<dyn Error>> {
+    async fn create_greeter(&self) -> Result<SessionChild, Error> {
         let mut pending_session = Session::new_external()?;
         pending_session
-            .initiate(
-                "greeter",
-                "user",
-                &self.greeter_user,
-            )
+            .initiate("greeter", "user", &self.greeter_user)
             .await?;
         match pending_session.get_state().await {
             Ok(SessionState::Ready) => (),
-            Ok(SessionState::Question(_, _)) => {
-                return Err("session start failed: unexpected question".into())
-            }
-            Ok(SessionState::AuthError(error)) => {
-                return Err(format!("session start failed: unexpected auth error: {}", error).into())
-            }
+            Ok(state) => return Err(format!("unexpected state: {:?}", state).into()),
             Err(err) => return Err(format!("session start failed: {}", err).into()),
         }
-        match pending_session.start(vec![self.greeter_bin.to_string()], vec![], self.vt).await {
+        match pending_session
+            .start(vec![self.greeter_bin.to_string()], vec![], self.vt)
+            .await
+        {
             Ok(s) => Ok(s),
             Err(e) => Err(format!("session start failed: {}", e).into()),
         }
     }
 
-    /// Start a greeter session.
-    pub async fn greet(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn greet(&self) -> Result<(), Error> {
         {
             let inner = self.inner.read().await;
             if inner.current_session.is_some() {
-                eprintln!("session already active");
                 return Err("session already active".into());
             }
         }
@@ -116,19 +90,16 @@ impl Context {
         Ok(())
     }
 
-    pub async fn create_session(&self, username: String) -> Result<(), Box<dyn Error>> {
+    pub async fn create_session(&self, username: String) -> Result<(), Error> {
         {
             let inner = self.inner.read().await;
             if inner.current_session.is_none() {
-                eprintln!("login request requires active session");
                 return Err("session not active".into());
             }
         }
 
         let mut pending_session = Session::new_external()?;
-        pending_session
-            .initiate("login", "user", &username)
-            .await?;
+        pending_session.initiate("login", "user", &username).await?;
         let mut inner = self.inner.write().await;
         inner.pending_session = Some(pending_session);
         inner.pending_time = Instant::now();
@@ -136,32 +107,40 @@ impl Context {
         Ok(())
     }
 
-    pub async fn cancel(&self) -> Result<(), Box<dyn Error>> {
-        let pending_session = self.inner.write().await.pending_session.take();
+    pub async fn cancel(&self) -> Result<(), Error> {
+        let mut inner = self.inner.write().await;
+        if inner.pending_args.is_some() {
+            return Ok(());
+        }
+
+        let pending_session = inner.pending_session.take();
         if let Some(mut s) = pending_session {
             s.post_answer(None).await?
         }
         Ok(())
     }
 
-    pub async fn get_question(&self) -> Result<Option<(QuestionStyle, String)>, Box<dyn Error>> {
+    pub async fn get_question(&self) -> Result<Option<(QuestionStyle, String)>, Error> {
         let mut inner = self.inner.write().await;
         match &mut inner.pending_session {
             Some(s) => match s.get_state().await? {
                 SessionState::Ready => Ok(None),
-                SessionState::AuthError(msg) => Err(msg.into()),
-                SessionState::Question(style, string) => Ok(Some((match style {
-                    SessQuestionStyle::Visible => QuestionStyle::Visible,
-                    SessQuestionStyle::Secret => QuestionStyle::Secret,
-                    SessQuestionStyle::Info => QuestionStyle::Info,
-                    SessQuestionStyle::Error => QuestionStyle::Error,
-                }, string))),
+                SessionState::AuthError(msg) => Err(Error::AuthError(msg)),
+                SessionState::Question(style, string) => Ok(Some((
+                    match style {
+                        SessQuestionStyle::Visible => QuestionStyle::Visible,
+                        SessQuestionStyle::Secret => QuestionStyle::Secret,
+                        SessQuestionStyle::Info => QuestionStyle::Info,
+                        SessQuestionStyle::Error => QuestionStyle::Error,
+                    },
+                    string,
+                ))),
             },
             None => Err("no session active".into()),
         }
     }
 
-    pub async fn post_answer(&self, answer: Option<String>) -> Result<(), Box<dyn Error>> {
+    pub async fn post_answer(&self, answer: Option<String>) -> Result<(), Error> {
         let mut inner = self.inner.write().await;
         match &mut inner.pending_session {
             Some(s) => s.post_answer(answer).await,
@@ -169,7 +148,7 @@ impl Context {
         }
     }
 
-    pub async fn start(&self, cmd: Vec<String>, env: Vec<String>) -> Result<(), Box<dyn Error>> {
+    pub async fn start(&self, cmd: Vec<String>, env: Vec<String>) -> Result<(), Error> {
         let mut inner = self.inner.write().await;
         match &mut inner.pending_session {
             Some(s) => {
@@ -179,44 +158,24 @@ impl Context {
                         // we lose patience and shoot it in the back repeatedly. This is all
                         // handled by our alarm handler.
                         alarm::set(5);
-                        inner.pending_args = Some(PendingArgs{
-                            cmd: cmd,
-                            env: env,
+                        inner.pending_args = Some(PendingArgs {
+                            cmd,
+                            env,
                             vt: self.vt,
                         });
 
                         Ok(())
                     }
-                    _ => Err("session is not ready".into()),
+                    SessionState::AuthError(msg) => Err(Error::AuthError(msg)),
+                    SessionState::Question(..) => Err("session is not ready".into()),
                 }
             }
             None => Err("no session active".into()),
         }
     }
 
-    pub async fn shutdown(&self, action: ShutdownAction) -> Result<(), Box<dyn Error>> {
-        {
-            let inner = self.inner.read().await;
-            if inner.current_session.is_none() {
-                eprintln!("shutdown request not valid when greeter is not active");
-                return Err("greeter not active".into());
-            }
-        }
-
-        let cmd = match action {
-            ShutdownAction::Poweroff => "poweroff",
-            ShutdownAction::Reboot => "reboot",
-            ShutdownAction::Exit => {
-                self.terminate().await?;
-                unreachable!("previous call must always fail");
-            }
-        };
-
-        run(cmd)
-    }
-
     /// Notify the Context of an alarm.
-    pub async fn alarm(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn alarm(&self) -> Result<(), Error> {
         // Keep trying to terminate the greeter until it gives up.
         let mut inner = self.inner.write().await;
         if let Some(mut p) = inner.pending_session.take() {
@@ -235,7 +194,7 @@ impl Context {
             }
             let args = match inner.pending_args.take() {
                 Some(a) => a,
-                None => return Err(format!("no known args for this session").into())
+                None => return Err("no known args for this session".into()),
             };
             drop(inner);
             let s = match p.start(args.cmd, args.env, args.vt).await {
@@ -253,7 +212,7 @@ impl Context {
 
     /// Notify the Context that it needs to check its children for termination.
     /// This should be called on SIGCHLD.
-    pub async fn check_children(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn check_children(&self) -> Result<(), Error> {
         loop {
             match waitpid(None, Some(WaitPidFlag::WNOHANG)) {
                 // No pending exits.
@@ -264,7 +223,6 @@ impl Context {
                     let mut inner = self.inner.write().await;
                     match &inner.current_session {
                         Some(session) if session.owns_pid(pid) => {
-                            eprintln!("session exited");
                             inner.current_session = None;
                         }
                         _ => continue,
@@ -272,12 +230,11 @@ impl Context {
 
                     match inner.pending_session.take() {
                         Some(mut pending_session) => {
-                            eprintln!("starting pending session");
                             // Our greeter finally bit the dust so we can
                             // start our pending session.
                             let args = match inner.pending_args.take() {
                                 Some(a) => a,
-                                None => return Err(format!("no known args for this session").into())
+                                None => return Err("no known args for this session".into()),
                             };
                             drop(inner);
                             let s = match pending_session.start(args.cmd, args.env, args.vt).await {
@@ -309,14 +266,14 @@ impl Context {
                 Err(nix::Error::Sys(nix::errno::Errno::EINTR)) => continue,
 
                 // Uh, what?
-                Err(e) => eprintln!("waitpid returned an unexpected error: {}", e),
+                Err(e) => panic!("waitpid returned an unexpected error: {}", e),
             }
         }
     }
 
     /// Notify the Context that we want to terminate. This should be called on
     /// SIGTERM.
-    pub async fn terminate(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn terminate(&self) -> Result<(), Error> {
         let mut inner = self.inner.write().await;
         if let Some(mut sess) = inner.pending_session.take() {
             let _ = sess.post_answer(None).await;

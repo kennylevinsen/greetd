@@ -1,15 +1,19 @@
-use std::error::Error;
-use std::ffi::{CStr, CString};
-use std::io;
-use std::pin::Pin;
-use std::ptr;
+use std::{
+    error::Error,
+    ffi::{CStr, CString},
+    io,
+    pin::Pin,
+    ptr,
+};
 
 use libc::c_void;
 use pam_sys::{PamFlag, PamHandle, PamItemType, PamReturnCode};
 
-use super::converse::Converse;
-use super::env::{get_pam_env, PamEnvList};
-use super::ffi::{make_conversation, PamConvHandlerWrapper};
+use super::{
+    converse::Converse,
+    env::{get_pam_env, PamEnvList},
+    ffi::{make_conversation, PamConvHandlerWrapper},
+};
 
 pub struct PamSession<'a> {
     handle: &'a mut PamHandle,

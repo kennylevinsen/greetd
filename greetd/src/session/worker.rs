@@ -1,4 +1,8 @@
-use std::{env, error::Error, ffi::CString, os::unix::net::UnixDatagram};
+use std::{
+    env,
+    ffi::CString,
+    os::unix::net::UnixDatagram,
+};
 
 use nix::{
     sys::wait::waitpid,
@@ -8,10 +12,8 @@ use pam_sys::{PamFlag, PamItemType};
 use serde::{Deserialize, Serialize};
 use users::os::unix::UserExt;
 
-use crate::{
-    pam::session::PamSession, session_conv::SessionConv, terminal,
-    user_environment::generate_user_environment,
-};
+use super::{conv::SessionConv, environment::generate_user_environment};
+use crate::{error::Error, pam::session::PamSession, terminal};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum QuestionStyle {
@@ -32,11 +34,23 @@ pub enum ParentToSessionChild {
         resp: String,
     },
     Cancel,
-    Start{
+    Start {
         vt: usize,
         env: Vec<String>,
         cmd: Vec<String>,
     },
+}
+
+impl ParentToSessionChild {
+    pub fn recv(sock: &UnixDatagram) -> Result<ParentToSessionChild, Error> {
+        let mut data = [0; 10240];
+        let len = sock
+            .recv(&mut data[..])
+            .map_err(|e| format!("unable to recieve message: {}", e))?;
+        let msg = serde_json::from_slice(&data[..len])
+            .map_err(|e| format!("unable to deserialize message: {}", e))?;
+        Ok(msg)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -47,17 +61,21 @@ pub enum SessionChildToParent {
     FinalChildPid(u64),
 }
 
+impl SessionChildToParent {
+    pub fn send(&self, sock: &UnixDatagram) -> Result<(), Error> {
+        let out =
+            serde_json::to_vec(self).map_err(|e| format!("unable to serialize message: {}", e))?;
+        sock.send(&out)
+            .map_err(|e| format!("unable to send message: {}", e))?;
+        Ok(())
+    }
+}
+
 /// The entry point for the session worker process. The session worker is
 /// responsible for the entirety of the session setup and execution. It is
 /// started by Session::start.
-pub fn session_worker(sock: &UnixDatagram) -> Result<(), Box<dyn Error>> {
-    let mut data = [0; 10240];
-    let len = sock
-        .recv(&mut data[..])
-        .map_err(|e| format!("unable to recieve message: {}", e))?;
-    let msg = serde_json::from_slice(&data[..len])
-        .map_err(|e| format!("unable to deserialize message: {}", e))?;
-    let (service, class, user) = match msg {
+pub fn main(sock: &UnixDatagram) -> Result<(), Error> {
+    let (service, class, user) = match ParentToSessionChild::recv(sock)? {
         ParentToSessionChild::InitiateLogin {
             service,
             class,
@@ -78,30 +96,14 @@ pub fn session_worker(sock: &UnixDatagram) -> Result<(), Box<dyn Error>> {
         let msg = SessionChildToParent::PamAuthError {
             error: pam.strerror().unwrap_or("unknown error").to_string(),
         };
-        let out =
-            serde_json::to_vec(&msg).map_err(|e| format!("unable to serialize message: {}", e))?;
-        sock.send(&out)
-            .map_err(|e| format!("unable to send message: {}", e))?;
-        return Err(e);
+        msg.send(sock)?;
+        return Err(e.into());
     }
 
-    let msg = SessionChildToParent::PamAuthSuccess;
-    let out =
-        serde_json::to_vec(&msg).map_err(|e| format!("unable to serialize message: {}", e))?;
-    sock.send(&out)
-        .map_err(|e| format!("unable to send message: {}", e))?;
+    SessionChildToParent::PamAuthSuccess.send(sock)?;
 
-    let len = sock
-        .recv(&mut data[..])
-        .map_err(|e| format!("unable to recieve message: {}", e))?;
-    let msg = serde_json::from_slice(&data[..len])
-        .map_err(|e| format!("unable to deserialize message: {}", e))?;
-    let (vt, env, cmd) = match msg {
-        ParentToSessionChild::Start{
-            vt,
-            env,
-            cmd
-        } => (vt, env, cmd),
+    let (vt, env, cmd) = match ParentToSessionChild::recv(sock)? {
+        ParentToSessionChild::Start { vt, env, cmd } => (vt, env, cmd),
         ParentToSessionChild::Cancel => return Err("cancelled".into()),
         _ => return Err("unexpected message".into()),
     };
@@ -131,9 +133,7 @@ pub fn session_worker(sock: &UnixDatagram) -> Result<(), Box<dyn Error>> {
     if vt != target_term.vt_get_current()? {
         // Perform a switch to the target VT, simultaneously resetting it to
         // VT_AUTO.
-        eprintln!("session worker: switching to VT {}", vt);
         target_term.vt_setactivate(vt)?;
-        eprintln!("session worker: switch to VT {} complete", vt);
     }
 
     // Hook up std(in|out|err). This allows us to run console applications.
@@ -259,10 +259,7 @@ pub fn session_worker(sock: &UnixDatagram) -> Result<(), Box<dyn Error>> {
     };
 
     // Signal the inner PID to the parent process.
-    let msg = SessionChildToParent::FinalChildPid(child.as_raw() as u64);
-    let data = serde_json::to_vec(&msg)?;
-    sock.send(&data)
-        .map_err(|e| format!("unable to send message: {}", e))?;
+    SessionChildToParent::FinalChildPid(child.as_raw() as u64).send(sock)?;
     sock.shutdown(std::net::Shutdown::Both)
         .map_err(|e| format!("unable to close pipe: {}", e))?;
 
@@ -270,7 +267,10 @@ pub fn session_worker(sock: &UnixDatagram) -> Result<(), Box<dyn Error>> {
     loop {
         match waitpid(child, None) {
             Err(nix::Error::Sys(nix::errno::Errno::EINTR)) => continue,
-            Err(e) => eprintln!("session: waitpid on inner child failed: {}", e),
+            Err(e) => {
+                eprintln!("session: waitpid on inner child failed: {}", e);
+                break;
+            },
             Ok(_) => break,
         }
     }

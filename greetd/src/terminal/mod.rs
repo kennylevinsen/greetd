@@ -1,9 +1,11 @@
 mod ioctl;
 
-use std::error::Error;
-use std::fs::{File, OpenOptions};
-use std::io::Write;
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::{
+    error::Error,
+    fs::{File, OpenOptions},
+    io::Write,
+    os::unix::io::{AsRawFd, RawFd},
+};
 
 use nix::unistd::dup2;
 

@@ -1,14 +1,15 @@
-use std::env;
-use std::fs;
-use std::io::{self, BufRead, Read, Write};
-use std::os::unix::net::UnixStream;
+use std::{
+    env, fs,
+    io::{self, BufRead, Read, Write},
+    os::unix::net::UnixStream,
+};
 
 use getopts::Options;
 use ini::Ini;
 use nix::sys::utsname::uname;
 use rpassword::prompt_password_stderr;
 
-use greet_proto::{Header, QuestionStyle, Request, Response};
+use greet_proto::{ErrorType, Header, QuestionStyle, Request, Response};
 
 fn prompt_stderr(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     let stdin = io::stdin();
@@ -49,7 +50,12 @@ fn get_issue() -> Result<String, Box<dyn std::error::Error>> {
         .replace("\\\\", "\\"))
 }
 
-fn login(node: &str, cmd: &Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+enum LoginResult {
+    Success,
+    Failure,
+}
+
+fn login(node: &str, cmd: &Option<String>) -> Result<LoginResult, Box<dyn std::error::Error>> {
     let username = prompt_stderr(&format!("{} login: ", node))?;
     let command = match cmd {
         Some(cmd) => cmd.to_string(),
@@ -89,11 +95,14 @@ fn login(node: &str, cmd: &Option<String>) -> Result<(), Box<dyn std::error::Err
                     }
                 };
 
-                request = Request::AnswerAuthQuestion { answer: Some(answer) };
-            },
-            Response::Success => match starting {
-                true => break,
-                false => {
+                request = Request::AnswerAuthQuestion {
+                    answer: Some(answer),
+                };
+            }
+            Response::Success => {
+                if starting {
+                    return Ok(LoginResult::Success);
+                } else {
                     starting = true;
                     request = Request::StartSession {
                         env: vec![
@@ -103,11 +112,16 @@ fn login(node: &str, cmd: &Option<String>) -> Result<(), Box<dyn std::error::Err
                         cmd: vec![command.to_string()],
                     }
                 }
+            }
+            Response::Error {
+                error_type,
+                description,
+            } => match error_type {
+                ErrorType::AuthError => return Ok(LoginResult::Failure),
+                ErrorType::Error => return Err(format!("login error: {:?}", description).into()),
             },
-            Response::Error{ error_type: _, description } => return Err(format!("login error: {:?}", description).into()),
         }
     }
-    Ok(())
 }
 
 fn print_usage(program: &str, opts: Options) {
@@ -119,9 +133,14 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     let program = args[0].clone();
     let mut opts = Options::new();
-    opts.optflag("c", "cmd", "command to run");
-    opts.optflag("f", "max-failures", "maximum number of accepted failures");
     opts.optflag("h", "help", "print this help menu");
+    opts.optopt("c", "cmd", "command to run", "COMMAND");
+    opts.optopt(
+        "f",
+        "max-failures",
+        "maximum number of accepted failures",
+        "FAILURES",
+    );
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(f) => {
@@ -151,9 +170,8 @@ fn main() {
     let uts = uname();
     for _ in 0..max_failures {
         match login(uts.nodename(), &cmd) {
-            Ok(()) => {
-                break;
-            }
+            Ok(LoginResult::Success) => break,
+            Ok(LoginResult::Failure) => eprintln!("Login incorrect\n"),
             Err(e) => eprintln!("error: {}", e),
         }
     }

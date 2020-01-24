@@ -8,12 +8,9 @@
 //!
 //! See `agreety` for a simple example use of this library.
 
-use std::error::Error;
-use std::io::Cursor;
-
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-
 use serde::{Deserialize, Serialize};
+use std::{error::Error, io::Cursor};
 
 #[derive(Debug)]
 pub struct Header {
@@ -53,14 +50,6 @@ impl Header {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
-#[serde(rename_all = "snake_case")]
-pub enum ShutdownAction {
-    Poweroff,
-    Reboot,
-    Exit,
-}
-
 /// A request from a greeter to greetd.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -77,9 +66,7 @@ pub enum Request {
     /// If a login flow needs to be aborted at any point, send
     /// Request::CancelSession. Note that the session is cancelled
     /// automatically on error.
-    CreateSession {
-        username: String,
-    },
+    CreateSession { username: String },
 
     /// AnswerAuthQuestion answers the last auth question, and returns either
     /// a Response::Question, Response::Success or Response::Failure.
@@ -87,26 +74,16 @@ pub enum Request {
     /// If a question is returned, it should be answered with a
     /// Request::AnswerAuthQuestion. If a success is returned, the session can
     /// then be started with Request::StartSession.
-    AnswerAuthQuestion {
-        answer: Option<String>,
-    },
+    AnswerAuthQuestion { answer: Option<String> },
 
     /// Start a successfully logged in session. This will fail if the session
     /// has pending questions or has encountered an error.
-    StartSession {
-        cmd: Vec<String>,
-        env: Vec<String>,
-    },
+    StartSession { cmd: Vec<String>, env: Vec<String> },
 
     /// Cancel a session. This can only be done if the session has not been
     /// started. Cancel does not have to be called if an error has been
     /// encountered in its setup or login flow.
     CancelSession,
-
-    /// Execute a machine shutdown action.
-    Shutdown {
-        action: ShutdownAction,
-    },
 }
 
 impl Request {
@@ -155,7 +132,10 @@ pub enum Response {
 
     /// The request failed. See the type and/or description for more
     /// information about this failure.
-    Error { error_type: ErrorType, description: String },
+    Error {
+        error_type: ErrorType,
+        description: String,
+    },
 
     /// An authentication question needs to be answered to continue through the
     /// authentication flow.
@@ -166,7 +146,10 @@ pub enum Response {
     /// died in the original "Land Before Time". It is therefore important that
     /// no assumptions are made about the questions that will be asked, and
     /// attempts to automatically answer these questions should not be made.
-    AuthQuestion{ question: String, style: QuestionStyle },
+    AuthQuestion {
+        question: String,
+        style: QuestionStyle,
+    },
 }
 
 impl Response {
