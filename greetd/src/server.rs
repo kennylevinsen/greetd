@@ -1,4 +1,4 @@
-use std::{io, rc::Rc};
+use std::{rc::Rc};
 
 use nix::unistd::{chown, Gid, Uid};
 use tokio::{
@@ -67,7 +67,7 @@ async fn client_handler(ctx: Rc<Context>, mut s: UnixStream) -> Result<(), Error
         let header = Header::from_slice(&header_bytes)
             .map_err(|e| format!("unable to deserialize header: {}", e))?;
         if header.version != 1 {
-            return Err(io::Error::new(io::ErrorKind::Other, "invalid message version").into());
+            return Err("invalid message version".into());
         }
 
         let mut body_bytes = vec![0; header.len as usize];

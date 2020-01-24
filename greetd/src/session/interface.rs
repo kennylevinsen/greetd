@@ -117,7 +117,6 @@ impl SessionChild {
 pub enum SessionState {
     Question(QuestionStyle, String),
     Ready,
-    AuthError(String),
 }
 
 /// A device to initiate a logged in PAM session.
@@ -174,7 +173,7 @@ impl Session {
                 Ok(SessionState::Question(style, msg))
             }
             SessionChildToParent::PamAuthSuccess => Ok(SessionState::Ready),
-            SessionChildToParent::PamAuthError { error } => Ok(SessionState::AuthError(error)),
+            SessionChildToParent::Error(e) => Err(e),
             msg => panic!("unexpected message from session worker: {:?}", msg),
         }
     }
@@ -206,7 +205,7 @@ impl Session {
         self.sock.shutdown(std::net::Shutdown::Both)?;
 
         let sub_task = match msg {
-            SessionChildToParent::PamAuthError { error } => return Err(error.into()),
+            SessionChildToParent::Error(e) => return Err(e),
             SessionChildToParent::FinalChildPid(raw_pid) => Pid::from_raw(raw_pid as i32),
             msg => panic!("unexpected message from session worker: {:?}", msg),
         };

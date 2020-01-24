@@ -125,7 +125,6 @@ impl Context {
         match &mut inner.pending_session {
             Some(s) => match s.get_state().await? {
                 SessionState::Ready => Ok(None),
-                SessionState::AuthError(msg) => Err(Error::AuthError(msg)),
                 SessionState::Question(style, string) => Ok(Some((
                     match style {
                         SessQuestionStyle::Visible => QuestionStyle::Visible,
@@ -166,7 +165,6 @@ impl Context {
 
                         Ok(())
                     }
-                    SessionState::AuthError(msg) => Err(Error::AuthError(msg)),
                     SessionState::Question(..) => Err("session is not ready".into()),
                 }
             }
@@ -178,6 +176,10 @@ impl Context {
     pub async fn alarm(&self) -> Result<(), Error> {
         // Keep trying to terminate the greeter until it gives up.
         let mut inner = self.inner.write().await;
+        if inner.pending_args.is_none() {
+            return Ok(());
+        }
+
         if let Some(mut p) = inner.pending_session.take() {
             if let Some(g) = inner.current_session.take() {
                 if inner.pending_time.elapsed() > Duration::from_secs(10) {
@@ -264,6 +266,9 @@ impl Context {
 
                 // Interrupted.
                 Err(nix::Error::Sys(nix::errno::Errno::EINTR)) => continue,
+
+                // We do not have any children right now.
+                Err(nix::Error::Sys(nix::errno::Errno::ECHILD)) => break Ok(()),
 
                 // Uh, what?
                 Err(e) => panic!("waitpid returned an unexpected error: {}", e),

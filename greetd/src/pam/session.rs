@@ -1,7 +1,5 @@
 use std::{
-    error::Error,
     ffi::{CStr, CString},
-    io,
     pin::Pin,
     ptr,
 };
@@ -13,6 +11,7 @@ use super::{
     converse::Converse,
     env::{get_pam_env, PamEnvList},
     ffi::{make_conversation, PamConvHandlerWrapper},
+    PamError,
 };
 
 pub struct PamSession<'a> {
@@ -27,7 +26,7 @@ impl<'a> PamSession<'a> {
         service: &str,
         user: &'a str,
         pam_conv: Pin<Box<dyn Converse + 'a>>,
-    ) -> Result<PamSession<'a>, Box<dyn Error>> {
+    ) -> Result<PamSession<'a>, PamError> {
         let mut pch = Box::pin(PamConvHandlerWrapper { handler: pam_conv });
         let conv = make_conversation(&mut *pch);
         let mut pam_handle: *mut PamHandle = ptr::null_mut();
@@ -38,55 +37,55 @@ impl<'a> PamSession<'a> {
                 lifetime_extender: pch,
                 last_code: PamReturnCode::SUCCESS,
             }),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "unable to start pam session").into()),
+            rc => Err(PamError::from_rc("pam_start", rc)),
         }
     }
 
-    pub fn authenticate(&mut self, flags: PamFlag) -> Result<(), Box<dyn Error>> {
+    pub fn authenticate(&mut self, flags: PamFlag) -> Result<(), PamError> {
         self.last_code = pam_sys::authenticate(self.handle, flags);
         match self.last_code {
             PamReturnCode::SUCCESS => Ok(()),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "unable to authenticate").into()),
+            rc => Err(PamError::from_rc("pam_authenticate", rc)),
         }
     }
 
-    pub fn acct_mgmt(&mut self, flags: PamFlag) -> Result<(), Box<dyn Error>> {
+    pub fn acct_mgmt(&mut self, flags: PamFlag) -> Result<(), PamError> {
         self.last_code = pam_sys::acct_mgmt(self.handle, flags);
         match self.last_code {
             PamReturnCode::SUCCESS => Ok(()),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "unable to activate account").into()),
+            rc => Err(PamError::from_rc("pam_acct_mgmt", rc)),
         }
     }
 
-    pub fn setcred(&mut self, flags: PamFlag) -> Result<(), Box<dyn Error>> {
+    pub fn setcred(&mut self, flags: PamFlag) -> Result<(), PamError> {
         self.last_code = pam_sys::setcred(self.handle, flags);
         match self.last_code {
             PamReturnCode::SUCCESS => Ok(()),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "unable to set credentials").into()),
+            rc => Err(PamError::from_rc("pam_setcred", rc)),
         }
     }
 
-    pub fn open_session(&mut self, flags: PamFlag) -> Result<(), Box<dyn Error>> {
+    pub fn open_session(&mut self, flags: PamFlag) -> Result<(), PamError> {
         self.last_code = pam_sys::open_session(self.handle, flags);
         match self.last_code {
             PamReturnCode::SUCCESS => Ok(()),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "unable to open session").into()),
+            rc => Err(PamError::from_rc("pam_open_session", rc)),
         }
     }
 
-    pub fn close_session(&mut self, flags: PamFlag) -> Result<(), Box<dyn Error>> {
+    pub fn close_session(&mut self, flags: PamFlag) -> Result<(), PamError> {
         self.last_code = pam_sys::close_session(self.handle, flags);
         match self.last_code {
             PamReturnCode::SUCCESS => Ok(()),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "unable to close session").into()),
+            rc => Err(PamError::from_rc("pam_close_session", rc)),
         }
     }
 
-    pub fn putenv(&mut self, v: &str) -> Result<(), Box<dyn Error>> {
+    pub fn putenv(&mut self, v: &str) -> Result<(), PamError> {
         self.last_code = pam_sys::putenv(self.handle, v);
         match self.last_code {
             PamReturnCode::SUCCESS => Ok(()),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "unable to put environment").into()),
+            rc => Err(PamError::from_rc("pam_putenv", rc)),
         }
     }
 
@@ -98,7 +97,7 @@ impl<'a> PamSession<'a> {
         pam_sys::getenv(self.handle, v)
     }
 
-    pub fn set_item(&mut self, item: PamItemType, value: &str) -> Result<(), Box<dyn Error>> {
+    pub fn set_item(&mut self, item: PamItemType, value: &str) -> Result<(), PamError> {
         let s = CString::new(value).unwrap();
         self.last_code = PamReturnCode::from(unsafe {
             // pam_set_item is exposed in a weird way in pam_sys::wrapped, so
@@ -107,38 +106,32 @@ impl<'a> PamSession<'a> {
         });
         match self.last_code {
             PamReturnCode::SUCCESS => Ok(()),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "unable to set item").into()),
+            rc => Err(PamError::from_rc("pam_set_item", rc)),
         }
     }
 
-    pub fn get_user(&mut self) -> Result<String, Box<dyn Error>> {
+    pub fn get_user(&mut self) -> Result<String, PamError> {
         let mut p: *const i8 = ptr::null_mut();
         self.last_code = pam_sys::get_user(self.handle, &mut p, ptr::null());
         match self.last_code {
             PamReturnCode::SUCCESS => {
                 Ok((unsafe { CStr::from_ptr(p) }).to_str().unwrap().to_string())
             }
-            _ => Err(io::Error::new(io::ErrorKind::Other, "unable to get user").into()),
+            rc => Err(PamError::from_rc("pam_get_user", rc)),
         }
     }
 
-    pub fn getenvlist(&mut self) -> Result<PamEnvList, Box<dyn Error>> {
+    pub fn getenvlist(&mut self) -> Result<PamEnvList, PamError> {
         match get_pam_env(self.handle) {
             Some(v) => Ok(v),
-            None => {
-                Err(io::Error::new(io::ErrorKind::Other, "unable to retrieve environment").into())
-            }
+            None => Err(PamError::Error("unable to retrieve environment".to_string())),
         }
     }
 
-    pub fn end(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn end(&mut self) -> Result<(), PamError> {
         match pam_sys::end(self.handle, self.last_code) {
             PamReturnCode::SUCCESS => Ok(()),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "unable to end pam session").into()),
+            rc => Err(PamError::from_rc("pam_end", rc)),
         }
-    }
-
-    pub fn strerror(&mut self) -> Option<&str> {
-        pam_sys::strerror(self.handle, self.last_code)
     }
 }

@@ -63,10 +63,11 @@ fn login(node: &str, cmd: &Option<String>) -> Result<LoginResult, Box<dyn std::e
     };
 
     let mut stream = UnixStream::connect(env::var("GREETD_SOCK")?)?;
-    let mut request = Request::CreateSession { username };
+
+    let mut next_request = Request::CreateSession { username };
     let mut starting = false;
     loop {
-        let req = request.to_bytes()?;
+        let req = next_request.to_bytes()?;
         let header = Header::new(req.len() as u32);
         stream.write_all(&header.to_bytes()?)?;
         stream.write_all(&req)?;
@@ -95,7 +96,7 @@ fn login(node: &str, cmd: &Option<String>) -> Result<LoginResult, Box<dyn std::e
                     }
                 };
 
-                request = Request::AnswerAuthQuestion {
+                next_request = Request::AnswerAuthQuestion {
                     answer: Some(answer),
                 };
             }
@@ -104,7 +105,7 @@ fn login(node: &str, cmd: &Option<String>) -> Result<LoginResult, Box<dyn std::e
                     return Ok(LoginResult::Success);
                 } else {
                     starting = true;
-                    request = Request::StartSession {
+                    next_request = Request::StartSession {
                         env: vec![
                             format!("XDG_SESSION_DESKTOP={}", &command),
                             format!("XDG_CURRENT_DESKTOP={}", &command),

@@ -8,8 +8,8 @@ use pam_sys::{PamFlag, PamItemType};
 use serde::{Deserialize, Serialize};
 use users::os::unix::UserExt;
 
-use super::{conv::SessionConv, environment::generate_user_environment};
-use crate::{error::Error, pam::session::PamSession, terminal};
+use super::{prctl::prctl, prctl::PrctlOption, conv::SessionConv, environment::generate_user_environment};
+use crate::{error::Error, pam::{session::PamSession}, terminal};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum QuestionStyle {
@@ -40,11 +40,8 @@ pub enum ParentToSessionChild {
 impl ParentToSessionChild {
     pub fn recv(sock: &UnixDatagram) -> Result<ParentToSessionChild, Error> {
         let mut data = [0; 10240];
-        let len = sock
-            .recv(&mut data[..])
-            .map_err(|e| format!("unable to recieve message: {}", e))?;
-        let msg = serde_json::from_slice(&data[..len])
-            .map_err(|e| format!("unable to deserialize message: {}", e))?;
+        let len = sock.recv(&mut data[..])?;
+        let msg = serde_json::from_slice(&data[..len])?;
         Ok(msg)
     }
 }
@@ -52,17 +49,15 @@ impl ParentToSessionChild {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SessionChildToParent {
     PamMessage { style: QuestionStyle, msg: String },
+    Error(Error),
     PamAuthSuccess,
-    PamAuthError { error: String },
     FinalChildPid(u64),
 }
 
 impl SessionChildToParent {
     pub fn send(&self, sock: &UnixDatagram) -> Result<(), Error> {
-        let out =
-            serde_json::to_vec(self).map_err(|e| format!("unable to serialize message: {}", e))?;
-        sock.send(&out)
-            .map_err(|e| format!("unable to send message: {}", e))?;
+        let out = serde_json::to_vec(self)?;
+        sock.send(&out)?;
         Ok(())
     }
 }
@@ -70,7 +65,9 @@ impl SessionChildToParent {
 /// The entry point for the session worker process. The session worker is
 /// responsible for the entirety of the session setup and execution. It is
 /// started by Session::start.
-pub fn main(sock: &UnixDatagram) -> Result<(), Error> {
+fn worker(sock: &UnixDatagram) -> Result<(), Error> {
+    prctl(PrctlOption::SET_PDEATHSIG(libc::SIGTERM))?;
+
     let (service, class, user) = match ParentToSessionChild::recv(sock)? {
         ParentToSessionChild::InitiateLogin {
             service,
@@ -82,19 +79,10 @@ pub fn main(sock: &UnixDatagram) -> Result<(), Error> {
     };
 
     let conv = Box::pin(SessionConv::new(sock));
-    let mut pam = PamSession::start(&service, &user, conv)
-        .map_err(|e| format!("unable to initiate PAM session: {}", e))?;
+    let mut pam = PamSession::start(&service, &user, conv)?;
 
-    if let Err(e) = pam
-        .authenticate(PamFlag::NONE)
-        .and_then(|_| pam.acct_mgmt(PamFlag::NONE))
-    {
-        let msg = SessionChildToParent::PamAuthError {
-            error: pam.strerror().unwrap_or("unknown error").to_string(),
-        };
-        msg.send(sock)?;
-        return Err(e.into());
-    }
+    pam.authenticate(PamFlag::NONE)?;
+    pam.acct_mgmt(PamFlag::NONE)?;
 
     SessionChildToParent::PamAuthSuccess.send(sock)?;
 
@@ -164,21 +152,17 @@ pub fn main(sock: &UnixDatagram) -> Result<(), Error> {
     ];
 
     for e in prepared_env.iter().chain(env.iter()) {
-        pam.putenv(e)
-            .map_err(|e| format!("unable to set PAM environment: {}", e))?;
+        pam.putenv(e)?;
     }
 
     // Tell PAM what TTY we're targetting, which is used by logind.
-    pam.set_item(PamItemType::TTY, &format!("/dev/tty{}", vt))
-        .map_err(|e| format!("unable to set PAM TTY item: {}", e))?;
+    pam.set_item(PamItemType::TTY, &format!("/dev/tty{}", vt))?;
 
     // Not the credentials you think.
-    pam.setcred(PamFlag::ESTABLISH_CRED)
-        .map_err(|e| format!("unable to establish PAM credentials: {}", e))?;
+    pam.setcred(PamFlag::ESTABLISH_CRED)?;
 
     // Session time!
-    pam.open_session(PamFlag::NONE)
-        .map_err(|e| format!("unable to open PAM session: {}", e))?;
+    pam.open_session(PamFlag::NONE)?;
 
     // Prepare some strings in C format that we'll need.
     let cusername = CString::new(username)?;
@@ -207,8 +191,7 @@ pub fn main(sock: &UnixDatagram) -> Result<(), Error> {
         fixup_env.push(format!("XDG_RUNTIME_DIR=/run/user/{}", uid));
     }
     for e in fixup_env.into_iter() {
-        pam.putenv(&e)
-            .map_err(|e| format!("unable to set PAM environment: {}", e))?;
+        pam.putenv(&e)?;
     }
 
     // We're almost done with our environment. Let's go through
@@ -218,8 +201,7 @@ pub fn main(sock: &UnixDatagram) -> Result<(), Error> {
 
     // Extract PAM environment for use with execve below.
     let pamenvlist = pam
-        .getenvlist()
-        .map_err(|e| format!("unable to get PAM environment: {}", e))?;
+        .getenvlist()?;
     let envvec = pamenvlist.to_vec();
 
     // PAM is weird and gets upset if you exec from the process that opened
@@ -256,8 +238,7 @@ pub fn main(sock: &UnixDatagram) -> Result<(), Error> {
 
     // Signal the inner PID to the parent process.
     SessionChildToParent::FinalChildPid(child.as_raw() as u64).send(sock)?;
-    sock.shutdown(std::net::Shutdown::Both)
-        .map_err(|e| format!("unable to close pipe: {}", e))?;
+    sock.shutdown(std::net::Shutdown::Both)?;
 
     // Wait for process to terminate, handling EINTR as necessary.
     loop {
@@ -276,12 +257,18 @@ pub fn main(sock: &UnixDatagram) -> Result<(), Error> {
     // home folders, telling logind that the session ended, etc.). This is
     // why we cannot drop privileges in this process, but must do it in the
     // inner-most child.
-    pam.close_session(PamFlag::NONE)
-        .map_err(|e| format!("unable to close PAM session: {}", e))?;
-    pam.setcred(PamFlag::DELETE_CRED)
-        .map_err(|e| format!("unable to clear PAM credentials: {}", e))?;
-    pam.end()
-        .map_err(|e| format!("unable to clear PAM credentials: {}", e))?;
+    pam.close_session(PamFlag::NONE)?;
+    pam.setcred(PamFlag::DELETE_CRED)?;
+    pam.end()?;
 
     Ok(())
+}
+
+pub fn main(sock: &UnixDatagram) -> Result<(), Error> {
+    if let Err(e) = worker(sock) {
+        SessionChildToParent::Error(e.clone()).send(sock)?;
+        Err(e)
+    } else {
+        Ok(())
+    }
 }

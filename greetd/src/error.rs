@@ -1,12 +1,18 @@
 use std::convert::From;
-use thiserror::Error as ThisError;
 
-#[derive(Debug, ThisError)]
+use thiserror::Error as ThisError;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, ThisError, Clone, Deserialize, Serialize)]
 pub enum Error {
     #[error("{0}")]
     Error(String),
     #[error("authentication error: {0}")]
     AuthError(String),
+    #[error("protocol error: {0}")]
+    ProtocolError(String),
+    #[error("i/o error: {0}")]
+    Io(String),
 }
 
 impl From<Box<dyn std::error::Error>> for Error {
@@ -17,7 +23,13 @@ impl From<Box<dyn std::error::Error>> for Error {
 
 impl From<std::io::Error> for Error {
     fn from(error: std::io::Error) -> Self {
-        Error::Error(format!("{}", error))
+        Error::Io(format!("{}", error))
+    }
+}
+
+impl From<crate::pam::PamError> for Error {
+    fn from(error: crate::pam::PamError) -> Self {
+        Error::AuthError(error.to_string())
     }
 }
 
@@ -35,7 +47,7 @@ impl From<&str> for Error {
 
 impl From<serde_json::error::Error> for Error {
     fn from(error: serde_json::error::Error) -> Self {
-        Error::Error(error.to_string())
+        Error::ProtocolError(error.to_string())
     }
 }
 
