@@ -28,16 +28,18 @@ pub enum ParentToSessionChild {
         service: String,
         class: String,
         user: String,
+        authenticate: bool,
     },
     PamResponse {
         resp: String,
     },
-    Cancel,
-    Start {
+    Args {
         vt: usize,
         env: Vec<String>,
         cmd: Vec<String>,
     },
+    Start,
+    Cancel,
 }
 
 impl ParentToSessionChild {
@@ -51,9 +53,9 @@ impl ParentToSessionChild {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SessionChildToParent {
-    PamMessage { style: QuestionStyle, msg: String },
+    Success,
     Error(Error),
-    PamAuthSuccess,
+    PamMessage { style: QuestionStyle, msg: String },
     FinalChildPid(u64),
 }
 
@@ -69,12 +71,13 @@ impl SessionChildToParent {
 /// responsible for the entirety of the session setup and execution. It is
 /// started by Session::start.
 fn worker(sock: &UnixDatagram) -> Result<(), Error> {
-    let (service, class, user) = match ParentToSessionChild::recv(sock)? {
+    let (service, class, user, authenticate) = match ParentToSessionChild::recv(sock)? {
         ParentToSessionChild::InitiateLogin {
             service,
             class,
             user,
-        } => (service, class, user),
+            authenticate,
+        } => (service, class, user, authenticate),
         ParentToSessionChild::Cancel => return Err("cancelled".into()),
         _ => return Err("unexpected message".into()),
     };
@@ -82,13 +85,25 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     let conv = Box::pin(SessionConv::new(sock));
     let mut pam = PamSession::start(&service, &user, conv)?;
 
-    pam.authenticate(PamFlag::NONE)?;
+    if authenticate {
+        pam.authenticate(PamFlag::NONE)?;
+    }
     pam.acct_mgmt(PamFlag::NONE)?;
 
-    SessionChildToParent::PamAuthSuccess.send(sock)?;
+    SessionChildToParent::Success.send(sock)?;
 
+    // Fetch our arguments from the parent.
     let (vt, env, cmd) = match ParentToSessionChild::recv(sock)? {
-        ParentToSessionChild::Start { vt, env, cmd } => (vt, env, cmd),
+        ParentToSessionChild::Args { vt, env, cmd } => (vt, env, cmd),
+        ParentToSessionChild::Cancel => return Err("cancelled".into()),
+        _ => return Err("unexpected message".into()),
+    };
+
+    SessionChildToParent::Success.send(sock)?;
+
+    // Await start request from our parent.
+    match ParentToSessionChild::recv(sock)? {
+        ParentToSessionChild::Start => (),
         ParentToSessionChild::Cancel => return Err("cancelled".into()),
         _ => return Err("unexpected message".into()),
     };

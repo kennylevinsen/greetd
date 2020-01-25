@@ -15,20 +15,21 @@ use crate::{
 };
 use greet_proto::QuestionStyle;
 
-struct PendingArgs {
-    env: Vec<String>,
-    cmd: Vec<String>,
-    vt: usize,
+struct SessionChildSet {
+    child: SessionChild,
+    time: Instant,
+    is_greeter: bool,
+}
+
+struct SessionSet {
+    session: Session,
+    time: Instant,
 }
 
 struct ContextInner {
-    current_session: Option<SessionChild>,
-    current_time: Instant,
-    current_is_greeter: bool,
-
-    pending_session: Option<Session>,
-    pending_time: Instant,
-    pending_args: Option<PendingArgs>,
+    current: Option<SessionChildSet>,
+    scheduled: Option<SessionSet>,
+    configuring: Option<SessionSet>,
 }
 
 /// Context keeps track of running sessions and start new ones.
@@ -43,12 +44,9 @@ impl Context {
     pub fn new(greeter_bin: String, greeter_user: String, vt: usize) -> Context {
         Context {
             inner: RwLock::new(ContextInner {
-                current_session: None,
-                current_time: Instant::now(),
-                current_is_greeter: false,
-                pending_session: None,
-                pending_time: Instant::now(),
-                pending_args: None,
+                current: None,
+                scheduled: None,
+                configuring: None,
             }),
             greeter_bin,
             greeter_user,
@@ -56,74 +54,95 @@ impl Context {
         }
     }
 
+    /// Directly start a greeter session, bypassing the normal scheduling. This
+    /// function does not take the inner lock, and can thus be used while it is
+    /// held.
     async fn create_greeter(&self) -> Result<SessionChild, Error> {
-        let mut pending_session = Session::new_external()?;
-        pending_session
-            .initiate("greeter", "user", &self.greeter_user)
+        let mut scheduled_session = Session::new_external()?;
+        scheduled_session
+            .initiate("greeter", "user", &self.greeter_user, false)
             .await?;
-        match pending_session.get_state().await {
+        match scheduled_session.get_state().await {
             Ok(SessionState::Ready) => (),
             Ok(state) => return Err(format!("unexpected state: {:?}", state).into()),
             Err(err) => return Err(format!("session start failed: {}", err).into()),
         }
-        match pending_session
-            .start(vec![self.greeter_bin.to_string()], vec![], self.vt)
-            .await
-        {
-            Ok(s) => Ok(s),
-            Err(e) => Err(format!("session start failed: {}", e).into()),
-        }
+
+        scheduled_session
+            .send_args(vec![self.greeter_bin.to_string()], vec![], self.vt)
+            .await?;
+        scheduled_session.start().await
     }
 
+    /// Directly start a greeter session, bypassing the normal scheduling.
     pub async fn greet(&self) -> Result<(), Error> {
         {
             let inner = self.inner.read().await;
-            if inner.current_session.is_some() {
+            if inner.current.is_some() {
                 return Err("session already active".into());
             }
         }
 
         let mut inner = self.inner.write().await;
-        inner.current_session = Some(self.create_greeter().await?);
-        inner.current_time = Instant::now();
-        inner.current_is_greeter = true;
+        inner.current = Some(SessionChildSet {
+            child: self.create_greeter().await?,
+            time: Instant::now(),
+            is_greeter: true,
+        });
         Ok(())
     }
 
+    /// Create a new session for configuration.
     pub async fn create_session(&self, username: String) -> Result<(), Error> {
         {
             let inner = self.inner.read().await;
-            if inner.current_session.is_none() {
+            if inner.current.is_none() {
                 return Err("session not active".into());
+            }
+            if inner.configuring.is_some() {
+                return Err("a session is already being configured".into());
+            }
+            if inner.scheduled.is_some() {
+                return Err("a session is already scheduled".into());
             }
         }
 
-        let mut pending_session = Session::new_external()?;
-        pending_session.initiate("login", "user", &username).await?;
+        let mut session_set = SessionSet {
+            session: Session::new_external()?,
+            time: Instant::now(),
+        };
+        session_set
+            .session
+            .initiate("login", "user", &username, true)
+            .await?;
+
+        let mut session = Some(session_set);
         let mut inner = self.inner.write().await;
-        inner.pending_session = Some(pending_session);
-        inner.pending_time = Instant::now();
+        std::mem::swap(&mut session, &mut inner.configuring);
+        drop(inner);
+
+        // If there was a session under configuration, cancel it.
+        if let Some(mut s) = session {
+            s.session.cancel().await?;
+        }
 
         Ok(())
     }
 
+    /// Cancel the session being configured.
     pub async fn cancel(&self) -> Result<(), Error> {
         let mut inner = self.inner.write().await;
-        if inner.pending_args.is_some() {
-            return Ok(());
-        }
-
-        let pending_session = inner.pending_session.take();
-        if let Some(mut s) = pending_session {
-            s.post_answer(None).await?
+        if let Some(mut s) = inner.configuring.take() {
+            s.session.cancel().await?;
         }
         Ok(())
     }
 
+    /// Retrieve a question from the session under configuration.
     pub async fn get_question(&self) -> Result<Option<(QuestionStyle, String)>, Error> {
         let mut inner = self.inner.write().await;
-        match &mut inner.pending_session {
-            Some(s) => match s.get_state().await? {
+        match &mut inner.configuring {
+            Some(s) => match s.session.get_state().await? {
                 SessionState::Ready => Ok(None),
                 SessionState::Question(style, string) => Ok(Some((
                     match style {
@@ -135,39 +154,47 @@ impl Context {
                     string,
                 ))),
             },
-            None => Err("no session active".into()),
+            None => Err("no session under configuration".into()),
         }
     }
 
+    /// Answer a question to the session under configuration.
     pub async fn post_answer(&self, answer: Option<String>) -> Result<(), Error> {
         let mut inner = self.inner.write().await;
-        match &mut inner.pending_session {
-            Some(s) => s.post_answer(answer).await,
-            None => Err("no session active".into()),
+        match &mut inner.configuring {
+            Some(s) => s.session.post_answer(answer).await,
+            None => Err("no session under configuration".into()),
         }
     }
 
+    /// Schedule the session under configuration with the provided arguments.
     pub async fn start(&self, cmd: Vec<String>, env: Vec<String>) -> Result<(), Error> {
-        let mut inner = self.inner.write().await;
-        match &mut inner.pending_session {
-            Some(s) => {
-                match s.get_state().await? {
-                    SessionState::Ready => {
-                        // We give the greeter 5 seconds to prove itself well-behaved before
-                        // we lose patience and shoot it in the back repeatedly. This is all
-                        // handled by our alarm handler.
-                        alarm::set(5);
-                        inner.pending_args = Some(PendingArgs {
-                            cmd,
-                            env,
-                            vt: self.vt,
-                        });
+        let mut session = self.inner.write().await.configuring.take();
 
-                        Ok(())
+        match &mut session {
+            Some(s) => match s.session.get_state().await? {
+                SessionState::Ready => {
+                    // Send our arguments to the session.
+                    s.session.send_args(cmd, env, self.vt).await?;
+
+                    let mut inner = self.inner.write().await;
+                    std::mem::swap(&mut session, &mut inner.scheduled);
+                    drop(inner);
+
+                    // If there was a scheduled session, cancel it.
+                    if let Some(mut p) = session {
+                        p.session.cancel().await?;
                     }
-                    SessionState::Question(..) => Err("session is not ready".into()),
+
+                    // We give the greeter 5 seconds to prove itself well-behaved before
+                    // we lose patience and shoot it in the back repeatedly. This is all
+                    // handled by our alarm handler.
+                    alarm::set(5);
+
+                    Ok(())
                 }
-            }
+                SessionState::Question(..) => Err("session is not ready".into()),
+            },
             None => Err("no session active".into()),
         }
     }
@@ -176,37 +203,32 @@ impl Context {
     pub async fn alarm(&self) -> Result<(), Error> {
         // Keep trying to terminate the greeter until it gives up.
         let mut inner = self.inner.write().await;
-        if inner.pending_args.is_none() {
-            return Ok(());
-        }
 
-        if let Some(mut p) = inner.pending_session.take() {
-            if let Some(g) = inner.current_session.take() {
-                if inner.pending_time.elapsed() > Duration::from_secs(10) {
+        if let Some(mut p) = inner.scheduled.take() {
+            if let Some(g) = inner.current.take() {
+                if p.time.elapsed() > Duration::from_secs(10) {
                     // We're out of patience.
-                    g.kill();
+                    g.child.kill();
                 } else {
                     // Let's try to give it a gentle nudge.
-                    g.term();
+                    g.child.term();
                 }
-                inner.current_session = Some(g);
-                inner.pending_session = Some(p);
+                inner.current = Some(g);
+                inner.scheduled = Some(p);
                 alarm::set(1);
                 return Ok(());
             }
-            let args = match inner.pending_args.take() {
-                Some(a) => a,
-                None => return Err("no known args for this session".into()),
-            };
             drop(inner);
-            let s = match p.start(args.cmd, args.env, args.vt).await {
+            let s = match p.session.start().await {
                 Ok(s) => s,
                 Err(e) => return Err(format!("session start failed: {}", e).into()),
             };
             let mut inner = self.inner.write().await;
-            inner.current_session = Some(s);
-            inner.current_is_greeter = false;
-            inner.current_time = Instant::now();
+            inner.current = Some(SessionChildSet {
+                child: s,
+                time: Instant::now(),
+                is_greeter: false,
+            });
         }
 
         Ok(())
@@ -217,46 +239,51 @@ impl Context {
     pub async fn check_children(&self) -> Result<(), Error> {
         loop {
             match waitpid(None, Some(WaitPidFlag::WNOHANG)) {
-                // No pending exits.
+                // No scheduled exits.
                 Ok(WaitStatus::StillAlive) => break Ok(()),
 
                 // We got an exit, see if it's something we need to clean up.
                 Ok(WaitStatus::Exited(pid, ..)) | Ok(WaitStatus::Signaled(pid, ..)) => {
                     let mut inner = self.inner.write().await;
-                    match &inner.current_session {
-                        Some(session) if session.owns_pid(pid) => {
-                            inner.current_session = None;
+                    let (was_greeter, sesion_length) = match &inner.current {
+                        Some(s) if s.child.owns_pid(pid) => {
+                            let res = (s.is_greeter, s.time.elapsed());
+                            inner.current = None;
+                            res
                         }
                         _ => continue,
-                    }
+                    };
 
-                    match inner.pending_session.take() {
-                        Some(mut pending_session) => {
+                    match inner.scheduled.take() {
+                        Some(mut scheduled) => {
                             // Our greeter finally bit the dust so we can
-                            // start our pending session.
-                            let args = match inner.pending_args.take() {
-                                Some(a) => a,
-                                None => return Err("no known args for this session".into()),
-                            };
+                            // start our scheduled session.
                             drop(inner);
-                            let s = match pending_session.start(args.cmd, args.env, args.vt).await {
+                            let s = match scheduled.session.start().await {
                                 Ok(s) => s,
                                 Err(e) => {
                                     return Err(format!("session start failed: {}", e).into());
                                 }
                             };
                             let mut inner = self.inner.write().await;
-                            inner.current_session = Some(s);
-                            inner.current_is_greeter = false;
-                            inner.current_time = Instant::now();
+                            inner.current = Some(SessionChildSet {
+                                child: s,
+                                time: Instant::now(),
+                                is_greeter: false,
+                            });
                         }
                         None => {
-                            if inner.current_time.elapsed() < Duration::from_secs(1) {
+                            if was_greeter {
+                                return Err("greeter died with no scheduled session".into());
+                            }
+                            if sesion_length < Duration::from_secs(1) {
                                 delay_for(Duration::from_secs(1)).await;
                             }
-                            inner.current_session = Some(self.create_greeter().await?);
-                            inner.current_is_greeter = true;
-                            inner.current_time = Instant::now();
+                            inner.current = Some(SessionChildSet {
+                                child: self.create_greeter().await?,
+                                time: Instant::now(),
+                                is_greeter: true,
+                            });
                         }
                     }
                 }
@@ -280,11 +307,14 @@ impl Context {
     /// SIGTERM.
     pub async fn terminate(&self) -> Result<(), Error> {
         let mut inner = self.inner.write().await;
-        if let Some(mut sess) = inner.pending_session.take() {
-            let _ = sess.post_answer(None).await;
+        if let Some(mut sess) = inner.configuring.take() {
+            let _ = sess.session.cancel().await;
         }
-        if let Some(sess) = inner.current_session.take() {
-            sess.shoo();
+        if let Some(mut sess) = inner.scheduled.take() {
+            let _ = sess.session.cancel().await;
+        }
+        if let Some(sess) = inner.current.take() {
+            sess.child.shoo();
         }
         Err("terminating".into())
     }

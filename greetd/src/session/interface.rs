@@ -127,6 +127,7 @@ pub struct Session {
 }
 
 impl Session {
+    /// Create a session started as an external process.
     pub fn new_external() -> Result<Session, Error> {
         // Pipe used to communicate the true PID of the final child.
         let (parentfd, childfd) =
@@ -150,16 +151,25 @@ impl Session {
         })
     }
 
-    pub async fn initiate(&mut self, service: &str, class: &str, user: &str) -> Result<(), Error> {
+    /// Initiates the session, which will cause authentication to begin.
+    pub async fn initiate(
+        &mut self,
+        service: &str,
+        class: &str,
+        user: &str,
+        authenticate: bool,
+    ) -> Result<(), Error> {
         let msg = ParentToSessionChild::InitiateLogin {
             service: service.to_string(),
             class: class.to_string(),
             user: user.to_string(),
+            authenticate,
         };
         msg.send(&mut self.sock).await?;
         Ok(())
     }
 
+    /// Return the current state of this session.
     pub async fn get_state(&mut self) -> Result<SessionState, Error> {
         let msg = match self.last_msg.take() {
             Some(msg) => msg,
@@ -172,12 +182,21 @@ impl Session {
             SessionChildToParent::PamMessage { style, msg } => {
                 Ok(SessionState::Question(style, msg))
             }
-            SessionChildToParent::PamAuthSuccess => Ok(SessionState::Ready),
+            SessionChildToParent::Success => Ok(SessionState::Ready),
             SessionChildToParent::Error(e) => Err(e),
             msg => panic!("unexpected message from session worker: {:?}", msg),
         }
     }
 
+    /// Cancel the session.
+    pub async fn cancel(&mut self) -> Result<(), Error> {
+        self.last_msg = None;
+        ParentToSessionChild::Cancel.send(&mut self.sock).await?;
+        Ok(())
+    }
+
+    /// Send an answer to an authentication question, or None to cahncel the
+    /// authentication attempt.
     pub async fn post_answer(&mut self, answer: Option<String>) -> Result<(), Error> {
         self.last_msg = None;
         let msg = match answer {
@@ -189,15 +208,33 @@ impl Session {
     }
 
     ///
-    /// Start the session described within the Session.
+    /// Send the arguments that will be used to start the session.
     ///
-    pub async fn start(
+    pub async fn send_args(
         &mut self,
         cmd: Vec<String>,
         env: Vec<String>,
         vt: usize,
-    ) -> Result<SessionChild, Error> {
-        let msg = ParentToSessionChild::Start { vt, env, cmd };
+    ) -> Result<(), Error> {
+        let msg = ParentToSessionChild::Args { vt, env, cmd };
+        msg.send(&mut self.sock).await?;
+
+        let msg = SessionChildToParent::recv(&mut self.sock).await?;
+
+        self.last_msg = Some(msg.clone());
+
+        match msg {
+            SessionChildToParent::Success => Ok(()),
+            SessionChildToParent::Error(e) => Err(e),
+            msg => panic!("unexpected message from session worker: {:?}", msg),
+        }
+    }
+
+    ///
+    /// Start the session.
+    ///
+    pub async fn start(&mut self) -> Result<SessionChild, Error> {
+        let msg = ParentToSessionChild::Start;
         msg.send(&mut self.sock).await?;
 
         let msg = SessionChildToParent::recv(&mut self.sock).await?;
