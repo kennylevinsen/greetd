@@ -1,7 +1,7 @@
 use std::convert::From;
 
-use thiserror::Error as ThisError;
 use serde::{Deserialize, Serialize};
+use thiserror::Error as ThisError;
 
 #[derive(Debug, ThisError, Clone, Deserialize, Serialize)]
 pub enum Error {

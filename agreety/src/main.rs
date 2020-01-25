@@ -57,11 +57,6 @@ enum LoginResult {
 
 fn login(node: &str, cmd: &Option<String>) -> Result<LoginResult, Box<dyn std::error::Error>> {
     let username = prompt_stderr(&format!("{} login: ", node))?;
-    let command = match cmd {
-        Some(cmd) => cmd.to_string(),
-        None => prompt_stderr("Command: ")?,
-    };
-
     let mut stream = UnixStream::connect(env::var("GREETD_SOCK")?)?;
 
     let mut next_request = Request::CreateSession { username };
@@ -105,6 +100,10 @@ fn login(node: &str, cmd: &Option<String>) -> Result<LoginResult, Box<dyn std::e
                     return Ok(LoginResult::Success);
                 } else {
                     starting = true;
+                    let command = match cmd {
+                        Some(cmd) => cmd.to_string(),
+                        None => prompt_stderr("Command: ")?,
+                    };
                     next_request = Request::StartSession {
                         env: vec![
                             format!("XDG_SESSION_DESKTOP={}", &command),

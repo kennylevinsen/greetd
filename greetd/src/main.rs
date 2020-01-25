@@ -12,18 +12,17 @@ use std::os::unix::{
     net::UnixDatagram,
 };
 
-use nix::sys::mman::{mlockall, MlockAllFlags};
-use nix::fcntl::fcntl;
-use nix::fcntl::FdFlag;
-use nix::fcntl::FcntlArg;
+use nix::{
+    fcntl::{fcntl, FcntlArg, FdFlag},
+    sys::mman::{mlockall, MlockAllFlags},
+};
 use tokio::task;
 
 use crate::{error::Error, session::worker};
 
 async fn session_worker_main(config: config::Config) -> Result<(), Error> {
     let raw_fd = config.session_worker as RawFd;
-    let mut cur_flags =
-        unsafe { FdFlag::from_bits_unchecked(fcntl(raw_fd, FcntlArg::F_GETFD)?) };
+    let mut cur_flags = unsafe { FdFlag::from_bits_unchecked(fcntl(raw_fd, FcntlArg::F_GETFD)?) };
     cur_flags.insert(FdFlag::FD_CLOEXEC);
     fcntl(raw_fd, FcntlArg::F_SETFD(cur_flags))?;
     let sock = unsafe { UnixDatagram::from_raw_fd(raw_fd) };

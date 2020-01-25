@@ -9,6 +9,9 @@ pub enum PrctlOption {
 
 pub fn prctl(option: PrctlOption) -> Result<()> {
     Errno::result(match option {
-        PrctlOption::SET_PDEATHSIG(sig) => unsafe { libc::prctl(PRCTL_SET_PDEATHSIG, sig, 0, 0, 0)},
-    }).map(drop)
+        PrctlOption::SET_PDEATHSIG(sig) => unsafe {
+            libc::prctl(PRCTL_SET_PDEATHSIG, sig, 0, 0, 0)
+        },
+    })
+    .map(drop)
 }
