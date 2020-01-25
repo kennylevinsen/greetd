@@ -70,6 +70,10 @@ async fn client_handler(ctx: Rc<Context>, mut s: UnixStream) -> Result<(), Error
             return Err("invalid message version".into());
         }
 
+        if header.len > 8192 {
+            return Err(Error::ProtocolError("message too long".to_string()));
+        }
+
         let mut body_bytes = vec![0; header.len as usize];
         s.read_exact(&mut body_bytes[..])
             .await
