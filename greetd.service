@@ -1,8 +1,8 @@
 [Unit]
 Description=Greeter daemon
 After=systemd-user-sessions.service plymouth-quit-wait.service
-After=getty@tty2.service
-Conflicts=getty@tty2.service
+After=getty@tty1.service
+Conflicts=getty@tty1.service
 
 [Service]
 Type=simple
@@ -10,11 +10,6 @@ ExecStart=greetd
 KillMode=mixed
 IgnoreSIGPIPE=no
 KeyringMode=shared
-StandardInput=tty
-StandardOutput=syslog
-StandardError=inherit
-TTYPath=/dev/tty2
-TTYReset=yes
 Restart=always
 RestartSec=1
 StartLimitBurst=5
