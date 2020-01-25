@@ -66,8 +66,6 @@ impl SessionChildToParent {
 /// responsible for the entirety of the session setup and execution. It is
 /// started by Session::start.
 fn worker(sock: &UnixDatagram) -> Result<(), Error> {
-    prctl(PrctlOption::SET_PDEATHSIG(libc::SIGTERM))?;
-
     let (service, class, user) = match ParentToSessionChild::recv(sock)? {
         ParentToSessionChild::InitiateLogin {
             service,
@@ -219,6 +217,10 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
             setgid(gid).expect("unable to set GID");
             setuid(uid).expect("unable to set UID");
 
+            // Set our parent death signal. setuid/setgid above resets the
+            // death signal, which is why we do this here.
+            prctl(PrctlOption::SET_PDEATHSIG(libc::SIGTERM)).expect("unable to set death signal");
+
             // Run
             let cpath = CString::new("/bin/sh").unwrap();
             execve(
@@ -239,6 +241,10 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     // Signal the inner PID to the parent process.
     SessionChildToParent::FinalChildPid(child.as_raw() as u64).send(sock)?;
     sock.shutdown(std::net::Shutdown::Both)?;
+
+    // Set our parent death signal. setsid above resets the signal, hence our
+    // late assignment, which is why we do this here.
+    prctl(PrctlOption::SET_PDEATHSIG(libc::SIGTERM))?;
 
     // Wait for process to terminate, handling EINTR as necessary.
     loop {
