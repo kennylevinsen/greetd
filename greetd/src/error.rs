@@ -7,10 +7,13 @@ use thiserror::Error as ThisError;
 pub enum Error {
     #[error("{0}")]
     Error(String),
+
     #[error("authentication error: {0}")]
     AuthError(String),
+
     #[error("protocol error: {0}")]
     ProtocolError(String),
+
     #[error("i/o error: {0}")]
     Io(String),
 }
