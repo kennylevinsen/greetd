@@ -8,8 +8,11 @@ use pam_sys::{PamFlag, PamItemType};
 use serde::{Deserialize, Serialize};
 use users::os::unix::UserExt;
 
-use super::{prctl::prctl, prctl::PrctlOption, conv::SessionConv, environment::generate_user_environment};
-use crate::{error::Error, pam::{session::PamSession}, terminal};
+use super::{
+    conv::SessionConv,
+    prctl::{prctl, PrctlOption},
+};
+use crate::{error::Error, pam::session::PamSession, terminal};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum QuestionStyle {
@@ -192,14 +195,8 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
         pam.putenv(&e)?;
     }
 
-    // We're almost done with our environment. Let's go through
-    // environment.d configuration to fix up the last bits.
-    let home = home.to_string();
-    generate_user_environment(&mut pam, home)?;
-
     // Extract PAM environment for use with execve below.
-    let pamenvlist = pam
-        .getenvlist()?;
+    let pamenvlist = pam.getenvlist()?;
     let envvec = pamenvlist.to_vec();
 
     // PAM is weird and gets upset if you exec from the process that opened

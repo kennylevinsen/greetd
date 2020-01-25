@@ -93,10 +93,6 @@ impl<'a> PamSession<'a> {
         pam_sys::getenv(self.handle, v).is_some()
     }
 
-    pub fn getenv<'b>(&'b mut self, v: &str) -> Option<&'b str> {
-        pam_sys::getenv(self.handle, v)
-    }
-
     pub fn set_item(&mut self, item: PamItemType, value: &str) -> Result<(), PamError> {
         let s = CString::new(value).unwrap();
         self.last_code = PamReturnCode::from(unsafe {
@@ -124,7 +120,9 @@ impl<'a> PamSession<'a> {
     pub fn getenvlist(&mut self) -> Result<PamEnvList, PamError> {
         match get_pam_env(self.handle) {
             Some(v) => Ok(v),
-            None => Err(PamError::Error("unable to retrieve environment".to_string())),
+            None => Err(PamError::Error(
+                "unable to retrieve environment".to_string(),
+            )),
         }
     }
 
