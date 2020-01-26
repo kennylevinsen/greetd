@@ -6,7 +6,6 @@ use tokio::{
     net::{UnixListener, UnixStream},
     prelude::*,
     signal::unix::{signal, SignalKind},
-    stream::StreamExt,
     task,
 };
 
@@ -144,8 +143,6 @@ pub async fn main(config: Config) -> Result<(), Error> {
         std::process::exit(1);
     }
 
-    let mut incoming = listener.incoming();
-
     let alarm_ctx = ctx.clone();
     task::spawn_local(async move {
         let mut alarm = signal(SignalKind::alarm()).expect("unable to listen for SIGALRM");
@@ -176,19 +173,14 @@ pub async fn main(config: Config) -> Result<(), Error> {
         }
     });
 
-    while let Some(stream) = incoming.next().await {
-        match stream {
-            Ok(stream) => {
-                let (ctx1, ctx2) = (ctx.clone(), ctx.clone());
-                task::spawn_local(async move {
-                    if let Err(e) = client_handler(ctx1, stream).await {
-                        ctx2.cancel().await.expect("unable to cancel session");
-                        eprintln!("client loop failed: {}", e);
-                    }
-                });
+    while let Ok((stream, _)) = listener.accept().await {
+        let (ctx1, ctx2) = (ctx.clone(), ctx.clone());
+        task::spawn_local(async move {
+            if let Err(e) = client_handler(ctx1, stream).await {
+                ctx2.cancel().await.expect("unable to cancel session");
+                eprintln!("client loop failed: {}", e);
             }
-            Err(e) => eprintln!("accept failed: {}", e),
-        }
+        });
     }
     Ok(())
 }
