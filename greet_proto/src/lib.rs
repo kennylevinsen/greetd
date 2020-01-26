@@ -2,62 +2,56 @@
 //!
 //! This library implements the greetd wire protocol.
 //!
-//! The library exposes a `Request` and a `Response` enum, together with a
-//! `Header` type needed to serialize a valid protocol message. Additional
-//! types are part of the different request and response values.
+//! The library exposes a [Request](enum.Request.html) and a
+//! [Response](enum.Response.html) enum, representing the valid protocol
+//! messages, without the length marker.length
+//!
+//! Additional types are part of the different request and response values.
 //!
 //! See `agreety` for a simple example use of this library.
-
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+//!
+//! # Format
+//!
+//! The message format is as follows:
+//!
+//! ```
+//! +----------+-------------------+
+//! | len: u32 | JSON payload: str |
+//! +----------+-------------------+
+//! ```
+//!
+//! Length is in native byte-order.
+//!
+//! # Request and response types
+//!
+//! See [Request](enum.Request.html) and [Response](enum.Response.html) for
+//! information about the request and response types, as well as their
+//! serialization.
+//!
 use serde::{Deserialize, Serialize};
-use std::{error::Error, io::Cursor};
+use std::{
+    error::Error,
+    io::{Read, Write},
+};
 
-#[derive(Debug)]
-pub struct Header {
-    pub version: u32,
-    pub len: u32,
-}
-
-impl Header {
-    pub const fn len() -> usize {
-        4 /* magic */ + 4 /* version */ + 4 /* payload length */
-    }
-
-    pub fn new(len: u32) -> Header {
-        Header { version: 1, len }
-    }
-
-    pub fn from_slice(bytes: &[u8]) -> Result<Header, Box<dyn Error>> {
-        let mut cursor = Cursor::new(bytes);
-
-        let proto_magic = cursor.read_u32::<LittleEndian>()?;
-        if proto_magic != 0xAFBF_CFDF {
-            return Err("invalid message magic".into());
-        }
-
-        let version = cursor.read_u32::<LittleEndian>()?;
-        let len = cursor.read_u32::<LittleEndian>()?;
-
-        Ok(Header { version, len })
-    }
-
-    pub fn to_bytes(&self) -> Result<Vec<u8>, Box<dyn Error>> {
-        let mut buf = Vec::new();
-        buf.write_u32::<LittleEndian>(0xAFBF_CFDF)?;
-        buf.write_u32::<LittleEndian>(self.version)?;
-        buf.write_u32::<LittleEndian>(self.len)?;
-        Ok(buf)
-    }
-}
-
-/// A request from a greeter to greetd.
+/// A request from a greeter to greetd. The request type is internally tagged
+/// with the"type" field, with the type written in snake_case.
+///
+/// Example serialization:
+///
+/// ```json
+/// {
+///    "type": "create_session",
+///    "username": "bob"
+/// }
+/// ```
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[serde(tag = "type")]
 pub enum Request {
     /// CreateSession initiates a login attempt for the given user.
-    /// CreateSession returns either a Response::Question, Response::Success or
-    /// Response::Failure.
+    /// CreateSession returns either a Response::AuthQuestion,
+    /// Response::Success or Response::Failure.
     ///
     /// If a question is returned, it should be answered with a
     /// Request::AnswerAuthQuestion. If a success is returned, the session can
@@ -69,7 +63,7 @@ pub enum Request {
     CreateSession { username: String },
 
     /// AnswerAuthQuestion answers the last auth question, and returns either
-    /// a Response::Question, Response::Success or Response::Failure.
+    /// a Response::AuthQuestion, Response::Success or Response::Failure.
     ///
     /// If a question is returned, it should be answered with a
     /// Request::AnswerAuthQuestion. If a success is returned, the session can
@@ -94,8 +88,27 @@ impl Request {
     pub fn to_bytes(&self) -> Result<Vec<u8>, Box<dyn Error>> {
         serde_json::to_vec(self).map_err(|x| x.into())
     }
+
+    pub fn read_from<T: Read>(stream: &mut T) -> Result<Request, Box<dyn Error>> {
+        let mut len_bytes = [0; 4];
+        stream.read_exact(&mut len_bytes)?;
+        let len = u32::from_ne_bytes(len_bytes);
+
+        let mut resp_buf = vec![0; len as usize];
+        stream.read_exact(&mut resp_buf)?;
+        Request::from_slice(&resp_buf)
+    }
+
+    pub fn write_to<T: Write>(&self, stream: &mut T) -> Result<(), Box<dyn Error>> {
+        let req_bytes = self.to_bytes()?;
+        let len_bytes = req_bytes.len().to_ne_bytes();
+        stream.write_all(&len_bytes)?;
+        stream.write_all(&req_bytes)?;
+        Ok(())
+    }
 }
 
+/// An error type for Response::Error. Serialized as snake_case.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorType {
@@ -106,6 +119,7 @@ pub enum ErrorType {
     AuthError,
 }
 
+/// A question style for a Response::AuthQuestion. Serialized as snake_case.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QuestionStyle {
@@ -122,7 +136,18 @@ pub enum QuestionStyle {
     Error,
 }
 
-/// A response from greetd to a greeter.
+/// A response from greetd to a greeter. The request type is internally tagged
+/// with the"type" field, with the type written in snake_case.
+///
+/// Example serialization:
+///
+/// ```json
+/// {
+///    "type": "auth_question",
+///    "question": "Password:",
+///    "style": "secret"
+/// }
+/// ```
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
@@ -147,8 +172,8 @@ pub enum Response {
     /// no assumptions are made about the questions that will be asked, and
     /// attempts to automatically answer these questions should not be made.
     AuthQuestion {
-        question: String,
         style: QuestionStyle,
+        question: String,
     },
 }
 
@@ -159,5 +184,23 @@ impl Response {
 
     pub fn to_bytes(&self) -> Result<Vec<u8>, Box<dyn Error>> {
         serde_json::to_vec(self).map_err(|x| x.into())
+    }
+
+    pub fn read_from<T: Read>(stream: &mut T) -> Result<Response, Box<dyn Error>> {
+        let mut len_bytes = [0; 4];
+        stream.read_exact(&mut len_bytes)?;
+        let len = u32::from_ne_bytes(len_bytes);
+
+        let mut resp_buf = vec![0; len as usize];
+        stream.read_exact(&mut resp_buf)?;
+        Response::from_slice(&resp_buf)
+    }
+
+    pub fn write_to<T: Write>(&self, stream: &mut T) -> Result<(), Box<dyn Error>> {
+        let req_bytes = self.to_bytes()?;
+        let len_bytes = req_bytes.len().to_ne_bytes();
+        stream.write_all(&len_bytes)?;
+        stream.write_all(&req_bytes)?;
+        Ok(())
     }
 }

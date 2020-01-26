@@ -68,21 +68,50 @@ Requests and responses are encoded the same.
 
 ## Requests
 
-### Login
+### CreateSession
 
-Attempts to log the user in. The specified command will be run with the specified environment as the requested user if login is successful. The greeter must exit if the login is a success to permit this to happen.
-
+Create a new session for the given user. This may result in authentication questions.
 
 ```
 {
-	"type": "login",
-	"username": "user",
-	"password": "password",
-	"command": ["sway"],
-	"env": {
-		"XDG_SESSION_TYPE": "wayland",
-		"XDG_SESSION_DESKTOP": "sway",
-	}
+	"type": "create_session",
+	"username": "user"
+}
+```
+
+### AnswerAuthQuestion
+
+Answer an authentication question.
+
+```
+{
+	"type": "answer_auth_question",
+	"answer": "password"
+}
+```
+
+### StartSession
+
+Start a fully authenticated session.
+
+```
+{
+	"type": "start_session",
+	"cmd": ["sway"],
+	"env": [
+		"XDG_SESSION_TYPE=wayland",
+		"XDG_SESSION_DESKTOP=sway"
+	]
+}
+```
+
+### CancelSession
+
+Cancel a session being configured.
+
+```
+{
+	"type": "cancel_session"
 }
 ```
 
@@ -90,39 +119,7 @@ Attempts to log the user in. The specified command will be run with the specifie
 
 ### Success
 
-```
-{
-	"type": "success",
-}
-```
-
-### Failure
-
-```
-{
-	"type": "failure",
-	"errorType": "loginError",
-	"description": "..."
-}
-```
-
-### Shutdown
-
-Runs an shutdown action, such as powering the machine off.
-
-
-```
-{
-	"type": "shutdown",
-	"action": "reboot"
-}
-```
-
-Available actions are: `poweroff`, `reboot` and `exit` (terminates greetd).
-
-## Response
-
-### Success
+The action was successful.
 
 ```
 {
@@ -130,13 +127,27 @@ Available actions are: `poweroff`, `reboot` and `exit` (terminates greetd).
 }
 ```
 
-### Failure
+### Error
+
+The action failed.
 
 ```
 {
-	"type": "failure",
-	"errorType": "shutdownError",
-	"action": "reboot",
+	"type": "error",
+	"error_type": "loginError",
 	"description": "..."
+}
+```
+
+
+### AuthQuestion
+
+The action resulted in authentication questions.
+
+```
+{
+	"type": "auth_question",
+	"question": "Password: ",
+	"style": "secret"
 }
 ```

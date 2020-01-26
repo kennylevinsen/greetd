@@ -17,7 +17,7 @@ use crate::{
     terminal,
     terminal::Terminal,
 };
-use greet_proto::{ErrorType, Header, Request, Response};
+use greet_proto::{ErrorType, Request, Response};
 
 fn reset_vt(vt: usize) -> Result<(), Error> {
     let term = Terminal::open(vt)?;
@@ -52,10 +52,9 @@ async fn client_get_question(ctx: &Context) -> Response {
 
 async fn client_handler(ctx: Rc<Context>, mut s: UnixStream) -> Result<(), Error> {
     loop {
-        let mut header_bytes = [0; Header::len()];
-
-        match s.read_exact(&mut header_bytes[..]).await {
-            Ok(_) => Ok(()),
+        let mut len_bytes = [0; 4];
+        match s.read_exact(&mut len_bytes).await {
+            Ok(l) => Ok(l),
             Err(e @ tokio_io::Error { .. }) => match e.kind() {
                 tokio_io::ErrorKind::UnexpectedEof => return Ok(()),
                 _ => Err(e),
@@ -63,18 +62,10 @@ async fn client_handler(ctx: Rc<Context>, mut s: UnixStream) -> Result<(), Error
         }
         .map_err(|e| format!("unable to read header: {}", e))?;
 
-        let header = Header::from_slice(&header_bytes)
-            .map_err(|e| format!("unable to deserialize header: {}", e))?;
-        if header.version != 1 {
-            return Err("invalid message version".into());
-        }
+        let len = u32::from_ne_bytes(len_bytes);
 
-        if header.len > 8192 {
-            return Err(Error::ProtocolError("message too long".to_string()));
-        }
-
-        let mut body_bytes = vec![0; header.len as usize];
-        s.read_exact(&mut body_bytes[..])
+        let mut body_bytes = vec![0; len as usize];
+        s.read_exact(&mut body_bytes)
             .await
             .map_err(|e| format!("unable to read body: {}", e))?;
 
@@ -98,12 +89,9 @@ async fn client_handler(ctx: Rc<Context>, mut s: UnixStream) -> Result<(), Error
         let resp_bytes = resp
             .to_bytes()
             .map_err(|e| format!("unable to serialize response: {}", e))?;
-        let header = Header::new(resp_bytes.len() as u32);
-        let header_bytes = header
-            .to_bytes()
-            .map_err(|e| format!("unable to serialize header: {}", e))?;
 
-        s.write_all(&header_bytes).await?;
+        let len_bytes = resp_bytes.len().to_ne_bytes();
+        s.write_all(&len_bytes).await?;
         s.write_all(&resp_bytes).await?;
     }
 }

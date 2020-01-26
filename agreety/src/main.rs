@@ -1,6 +1,6 @@
 use std::{
     env, fs,
-    io::{self, BufRead, Read, Write},
+    io::{self, BufRead},
     os::unix::net::UnixStream,
 };
 
@@ -9,7 +9,7 @@ use ini::Ini;
 use nix::sys::utsname::uname;
 use rpassword::prompt_password_stderr;
 
-use greet_proto::{ErrorType, Header, QuestionStyle, Request, Response};
+use greet_proto::{ErrorType, QuestionStyle, Request, Response};
 
 fn prompt_stderr(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     let stdin = io::stdin();
@@ -62,21 +62,9 @@ fn login(node: &str, cmd: &Option<String>) -> Result<LoginResult, Box<dyn std::e
     let mut next_request = Request::CreateSession { username };
     let mut starting = false;
     loop {
-        let req = next_request.to_bytes()?;
-        let header = Header::new(req.len() as u32);
-        stream.write_all(&header.to_bytes()?)?;
-        stream.write_all(&req)?;
+        next_request.write_to(&mut stream)?;
 
-        // Read response
-        let mut header_buf = vec![0; Header::len()];
-        stream.read_exact(&mut header_buf)?;
-        let header = Header::from_slice(&header_buf)?;
-
-        let mut resp_buf = vec![0; header.len as usize];
-        stream.read_exact(&mut resp_buf)?;
-        let resp = Response::from_slice(&resp_buf)?;
-
-        match resp {
+        match Response::read_from(&mut stream)? {
             Response::AuthQuestion { question, style } => {
                 let answer = match style {
                     QuestionStyle::Visible => prompt_stderr(&question)?,
