@@ -5,10 +5,7 @@ use std::{
 
 use nix::{
     fcntl::{fcntl, FcntlArg, FdFlag},
-    sys::{
-        signal::Signal,
-        wait::{waitpid, WaitPidFlag, WaitStatus},
-    },
+    sys::signal::Signal,
     unistd::Pid,
 };
 
@@ -76,40 +73,6 @@ impl SessionChild {
     pub fn kill(&self) {
         let _ = nix::sys::signal::kill(self.sub_task, Signal::SIGKILL);
         let _ = nix::sys::signal::kill(self.task, Signal::SIGKILL);
-    }
-
-    /// Terminate a session. Sends SIGTERM in a loop, then sends SIGKILL in a loop.
-    pub fn shoo(&self) {
-        let task = self.sub_task;
-        let _ = nix::sys::signal::kill(task, Signal::SIGTERM);
-        let mut dead = false;
-        let mut sleep = 1;
-        while !dead && sleep < 1000 {
-            match waitpid(task, Some(WaitPidFlag::WNOHANG)) {
-                Ok(WaitStatus::Exited(..)) | Ok(WaitStatus::Signaled(..)) => {
-                    dead = true;
-                }
-                _ => {
-                    sleep *= 10;
-                }
-            }
-            std::thread::sleep(std::time::Duration::from_millis(sleep));
-        }
-        if !dead {
-            sleep = 1;
-            let _ = nix::sys::signal::kill(task, Signal::SIGKILL);
-            while !dead && sleep < 1000 {
-                match waitpid(task, Some(WaitPidFlag::WNOHANG)) {
-                    Ok(WaitStatus::Exited(..)) | Ok(WaitStatus::Signaled(..)) => {
-                        dead = true;
-                    }
-                    _ => {
-                        sleep *= 10;
-                    }
-                }
-                std::thread::sleep(std::time::Duration::from_millis(sleep));
-            }
-        }
     }
 }
 

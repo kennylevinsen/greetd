@@ -314,7 +314,7 @@ impl Context {
             let _ = sess.session.cancel().await;
         }
         if let Some(sess) = inner.current.take() {
-            sess.child.shoo();
+            sess.child.term();
         }
         Err("terminating".into())
     }
