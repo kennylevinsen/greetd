@@ -9,7 +9,7 @@ use ini::Ini;
 use nix::sys::utsname::uname;
 use rpassword::prompt_password_stderr;
 
-use greet_proto::{ErrorType, QuestionStyle, Request, Response};
+use greet_proto::{codec::SyncCodec, ErrorType, QuestionStyle, Request, Response};
 
 fn prompt_stderr(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     let stdin = io::stdin();

@@ -29,10 +29,6 @@
 //! serialization.
 //!
 use serde::{Deserialize, Serialize};
-use std::{
-    error::Error,
-    io::{Read, Write},
-};
 
 /// A request from a greeter to greetd. The request type is internally tagged
 /// with the"type" field, with the type written in snake_case.
@@ -78,34 +74,6 @@ pub enum Request {
     /// started. Cancel does not have to be called if an error has been
     /// encountered in its setup or login flow.
     CancelSession,
-}
-
-impl Request {
-    pub fn from_slice(bytes: &[u8]) -> Result<Request, Box<dyn Error>> {
-        serde_json::from_slice(bytes).map_err(|x| x.into())
-    }
-
-    pub fn to_bytes(&self) -> Result<Vec<u8>, Box<dyn Error>> {
-        serde_json::to_vec(self).map_err(|x| x.into())
-    }
-
-    pub fn read_from<T: Read>(stream: &mut T) -> Result<Request, Box<dyn Error>> {
-        let mut len_bytes = [0; 4];
-        stream.read_exact(&mut len_bytes)?;
-        let len = u32::from_ne_bytes(len_bytes);
-
-        let mut resp_buf = vec![0; len as usize];
-        stream.read_exact(&mut resp_buf)?;
-        Request::from_slice(&resp_buf)
-    }
-
-    pub fn write_to<T: Write>(&self, stream: &mut T) -> Result<(), Box<dyn Error>> {
-        let req_bytes = self.to_bytes()?;
-        let len_bytes = req_bytes.len().to_ne_bytes();
-        stream.write_all(&len_bytes)?;
-        stream.write_all(&req_bytes)?;
-        Ok(())
-    }
 }
 
 /// An error type for Response::Error. Serialized as snake_case.
@@ -177,30 +145,197 @@ pub enum Response {
     },
 }
 
-impl Response {
-    pub fn from_slice(bytes: &[u8]) -> Result<Response, Box<dyn Error>> {
-        serde_json::from_slice(bytes).map_err(|x| x.into())
+/// Reader/writer codecs for Request/Response.
+///
+/// This is implemented in the form of two traits, SyncCodec and TokioCodec,
+/// which operate on the `std` and `tokio` implementations of reader/writer
+/// traits. The former is intended as the name suggests for synchronous
+/// operation, while the latter is for asynchronous operation when using tokio.
+///
+/// These codecs are hidden behind the `sync-codec` and `tokio-codec` features,
+/// respectively. These features also implicitly enable the `codec` feature,
+/// which controls the entire `codec` module.
+///
+#[cfg(feature = "codec")]
+#[cfg_attr(docsrs, doc(cfg(feature = "codec")))]
+pub mod codec {
+    use thiserror::Error as ThisError;
+
+    #[derive(Debug, ThisError)]
+    pub enum Error {
+        #[error("serialization error: {0}")]
+        Serialization(String),
+        #[error("i/o error: {0}")]
+        Io(String),
+        #[error("EOF")]
+        Eof,
     }
 
-    pub fn to_bytes(&self) -> Result<Vec<u8>, Box<dyn Error>> {
-        serde_json::to_vec(self).map_err(|x| x.into())
+    impl From<serde_json::error::Error> for Error {
+        fn from(error: serde_json::error::Error) -> Self {
+            Error::Serialization(error.to_string())
+        }
     }
 
-    pub fn read_from<T: Read>(stream: &mut T) -> Result<Response, Box<dyn Error>> {
-        let mut len_bytes = [0; 4];
-        stream.read_exact(&mut len_bytes)?;
-        let len = u32::from_ne_bytes(len_bytes);
-
-        let mut resp_buf = vec![0; len as usize];
-        stream.read_exact(&mut resp_buf)?;
-        Response::from_slice(&resp_buf)
+    impl From<std::io::Error> for Error {
+        fn from(error: std::io::Error) -> Self {
+            Error::Io(format!("{}", error))
+        }
     }
 
-    pub fn write_to<T: Write>(&self, stream: &mut T) -> Result<(), Box<dyn Error>> {
-        let req_bytes = self.to_bytes()?;
-        let len_bytes = req_bytes.len().to_ne_bytes();
-        stream.write_all(&len_bytes)?;
-        stream.write_all(&req_bytes)?;
-        Ok(())
+    #[cfg(feature = "sync-codec")]
+    mod sync_codec {
+        use crate::{codec::Error, Request, Response};
+        use std::io::{Read, Write};
+
+        /// Reader/writer implementation over std::io::{Read,Write}.
+        pub trait SyncCodec {
+            fn read_from<T: Read>(stream: &mut T) -> Result<Self, Error>
+            where
+                Self: std::marker::Sized;
+            fn write_to<T: Write>(&self, stream: &mut T) -> Result<(), Error>;
+        }
+
+        impl SyncCodec for Request {
+            fn read_from<T: Read>(stream: &mut T) -> Result<Self, Error> {
+                let mut len_bytes = [0; 4];
+                stream
+                    .read_exact(&mut len_bytes)
+                    .map_err(|e| match e.kind() {
+                        std::io::ErrorKind::UnexpectedEof => Error::Eof,
+                        _ => e.into(),
+                    })?;
+                let len = u32::from_ne_bytes(len_bytes);
+
+                let mut resp_buf = vec![0; len as usize];
+                stream.read_exact(&mut resp_buf)?;
+                serde_json::from_slice(&resp_buf).map_err(|e| e.into())
+            }
+
+            fn write_to<T: Write>(&self, stream: &mut T) -> Result<(), Error> {
+                let body_bytes = serde_json::to_vec(self)?;
+                let len_bytes = (body_bytes.len() as u32).to_ne_bytes();
+                stream.write_all(&len_bytes)?;
+                stream.write_all(&body_bytes)?;
+                Ok(())
+            }
+        }
+
+        impl SyncCodec for Response {
+            fn read_from<T: Read>(stream: &mut T) -> Result<Self, Error> {
+                let mut len_bytes = [0; 4];
+                stream
+                    .read_exact(&mut len_bytes)
+                    .map_err(|e| match e.kind() {
+                        std::io::ErrorKind::UnexpectedEof => Error::Eof,
+                        _ => e.into(),
+                    })?;
+                let len = u32::from_ne_bytes(len_bytes);
+
+                let mut resp_buf = vec![0; len as usize];
+                stream.read_exact(&mut resp_buf)?;
+                serde_json::from_slice(&resp_buf).map_err(|e| e.into())
+            }
+
+            fn write_to<T: Write>(&self, stream: &mut T) -> Result<(), Error> {
+                let body_bytes = serde_json::to_vec(self)?;
+                let len_bytes = (body_bytes.len() as u32).to_ne_bytes();
+                stream.write_all(&len_bytes)?;
+                stream.write_all(&body_bytes)?;
+                Ok(())
+            }
+        }
     }
+    #[cfg(feature = "sync-codec")]
+    pub use sync_codec::SyncCodec;
+
+    #[cfg(feature = "tokio-codec")]
+    mod tokio_codec {
+        use crate::{codec::Error, Request, Response};
+        use async_trait::async_trait;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        /// Reader/writer implementation over tokio::io::{AsyncReadExt, AsyncWriteExt}.
+        #[async_trait]
+        pub trait TokioCodec {
+            async fn read_from<T: AsyncReadExt + std::marker::Unpin + Send>(
+                stream: &mut T,
+            ) -> Result<Self, Error>
+            where
+                Self: std::marker::Sized;
+            async fn write_to<T: AsyncWriteExt + std::marker::Unpin + Send>(
+                &self,
+                stream: &mut T,
+            ) -> Result<(), Error>;
+        }
+
+        #[async_trait]
+        impl TokioCodec for Request {
+            async fn read_from<T: AsyncReadExt + std::marker::Unpin + Send>(
+                stream: &mut T,
+            ) -> Result<Self, Error> {
+                let mut len_bytes = [0; 4];
+                stream
+                    .read_exact(&mut len_bytes)
+                    .await
+                    .map_err(|e| match e.kind() {
+                        std::io::ErrorKind::UnexpectedEof => Error::Eof,
+                        _ => e.into(),
+                    })?;
+                let len = u32::from_ne_bytes(len_bytes);
+
+                let mut body_bytes = vec![0; len as usize];
+                stream.read_exact(&mut body_bytes).await?;
+                let body = serde_json::from_slice(&body_bytes)?;
+                Ok(body)
+            }
+
+            async fn write_to<T: AsyncWriteExt + std::marker::Unpin + Send>(
+                &self,
+                stream: &mut T,
+            ) -> Result<(), Error> {
+                let body_bytes = serde_json::to_vec(self)?;
+                let len_bytes = (body_bytes.len() as u32).to_ne_bytes();
+                stream.write_all(&len_bytes).await?;
+                stream.write_all(&body_bytes).await?;
+                Ok(())
+            }
+        }
+
+        #[async_trait]
+        impl TokioCodec for Response {
+            async fn read_from<T: AsyncReadExt + std::marker::Unpin + Send>(
+                stream: &mut T,
+            ) -> Result<Self, Error> {
+                let mut len_bytes = [0; 4];
+                stream
+                    .read_exact(&mut len_bytes)
+                    .await
+                    .map_err(|e| match e.kind() {
+                        std::io::ErrorKind::UnexpectedEof => Error::Eof,
+                        _ => e.into(),
+                    })?;
+                let len = u32::from_ne_bytes(len_bytes);
+
+                let mut body_bytes = vec![0; len as usize];
+                stream.read_exact(&mut body_bytes).await?;
+                let body = serde_json::from_slice(&body_bytes)?;
+                Ok(body)
+            }
+
+            async fn write_to<T: AsyncWriteExt + std::marker::Unpin + Send>(
+                &self,
+                stream: &mut T,
+            ) -> Result<(), Error> {
+                let body_bytes = serde_json::to_vec(self)?;
+                let len_bytes = (body_bytes.len() as u32).to_ne_bytes();
+                stream.write_all(&len_bytes).await?;
+                stream.write_all(&body_bytes).await?;
+                Ok(())
+            }
+        }
+    }
+
+    #[cfg(feature = "tokio-codec")]
+    pub use tokio_codec::TokioCodec;
 }

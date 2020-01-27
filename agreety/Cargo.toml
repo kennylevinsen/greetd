@@ -5,7 +5,7 @@ authors = ["Kenny Levinsen <kl@kl.wtf>"]
 edition = "2018"
 
 [dependencies]
-greet_proto = { path = "../greet_proto" }
+greet_proto = { path = "../greet_proto", features = ["sync-codec"]}
 rust-ini = "0.14"
 rpassword = "4.0"
 getopts = "0.2"

@@ -2,9 +2,7 @@ use std::rc::Rc;
 
 use nix::unistd::{chown, Gid, Uid};
 use tokio::{
-    io as tokio_io,
     net::{UnixListener, UnixStream},
-    prelude::*,
     signal::unix::{signal, SignalKind},
     task,
 };
@@ -13,11 +11,13 @@ use crate::{
     config::{Config, VtSelection},
     context::Context,
     error::Error,
-    scrambler::Scrambler,
     terminal,
     terminal::Terminal,
 };
-use greet_proto::{ErrorType, Request, Response};
+use greet_proto::{
+    codec::{Error as CodecError, TokioCodec},
+    ErrorType, Request, Response,
+};
 
 fn reset_vt(vt: usize) -> Result<(), Error> {
     let term = Terminal::open(vt)?;
@@ -52,26 +52,11 @@ async fn client_get_question(ctx: &Context) -> Response {
 
 async fn client_handler(ctx: Rc<Context>, mut s: UnixStream) -> Result<(), Error> {
     loop {
-        let mut len_bytes = [0; 4];
-        match s.read_exact(&mut len_bytes).await {
-            Ok(l) => Ok(l),
-            Err(e @ tokio_io::Error { .. }) => match e.kind() {
-                tokio_io::ErrorKind::UnexpectedEof => return Ok(()),
-                _ => Err(e),
-            },
-        }
-        .map_err(|e| format!("unable to read header: {}", e))?;
-
-        let len = u32::from_ne_bytes(len_bytes);
-
-        let mut body_bytes = vec![0; len as usize];
-        s.read_exact(&mut body_bytes)
-            .await
-            .map_err(|e| format!("unable to read body: {}", e))?;
-
-        let req = Request::from_slice(&body_bytes)
-            .map_err(|e| format!("unable to deserialize request: {}", e))?;
-        body_bytes.scramble();
+        let req = match Request::read_from(&mut s).await {
+            Ok(req) => req,
+            Err(CodecError::Eof) => return Ok(()),
+            Err(e) => return Err(e.into()),
+        };
 
         let resp = match req {
             Request::CreateSession { username } => match ctx.create_session(username).await {
@@ -86,13 +71,7 @@ async fn client_handler(ctx: Rc<Context>, mut s: UnixStream) -> Result<(), Error
             Request::CancelSession => wrap_result(ctx.cancel().await),
         };
 
-        let resp_bytes = resp
-            .to_bytes()
-            .map_err(|e| format!("unable to serialize response: {}", e))?;
-
-        let len_bytes = resp_bytes.len().to_ne_bytes();
-        s.write_all(&len_bytes).await?;
-        s.write_all(&resp_bytes).await?;
+        resp.write_to(&mut s).await?;
     }
 }
 

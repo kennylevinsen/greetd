@@ -36,6 +36,16 @@ impl From<crate::pam::PamError> for Error {
     }
 }
 
+impl From<greet_proto::codec::Error> for Error {
+    fn from(error: greet_proto::codec::Error) -> Self {
+        match error {
+            greet_proto::codec::Error::Serialization(s) => Error::ProtocolError(s),
+            greet_proto::codec::Error::Io(s) => Error::Io(s),
+            greet_proto::codec::Error::Eof => Error::Io("EOF".to_string()),
+        }
+    }
+}
+
 impl From<String> for Error {
     fn from(error: String) -> Self {
         Error::Error(error)
