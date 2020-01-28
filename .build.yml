@@ -1,9 +1,15 @@
 image: archlinux
+secrets:
+  - 46e8e572-0807-4a50-b2e5-614cb1c66cca
 packages:
   - rust
 sources:
   - https://git.sr.ht/~kennylevinsen/greetd
 tasks:
+  - github-mirror: |
+      cd greetd
+      ssh-keyscan github.com >> ~/.ssh/known_hosts
+      git push --quiet --mirror git@github.com:kennylevinsen/greetd.git
   - rustfmt-check: |
       cd greetd
       cargo fmt -- --check
