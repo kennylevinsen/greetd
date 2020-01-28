@@ -104,10 +104,15 @@ fn login(node: &str, cmd: &Option<String>) -> Result<LoginResult, Box<dyn std::e
             Response::Error {
                 error_type,
                 description,
-            } => match error_type {
-                ErrorType::AuthError => return Ok(LoginResult::Failure),
-                ErrorType::Error => return Err(format!("login error: {:?}", description).into()),
-            },
+            } => {
+                Request::CancelSession.write_to(&mut stream)?;
+                match error_type {
+                    ErrorType::AuthError => return Ok(LoginResult::Failure),
+                    ErrorType::Error => {
+                        return Err(format!("login error: {:?}", description).into())
+                    }
+                }
+            }
         }
     }
 }
@@ -160,7 +165,10 @@ fn main() {
         match login(uts.nodename(), &cmd) {
             Ok(LoginResult::Success) => break,
             Ok(LoginResult::Failure) => eprintln!("Login incorrect\n"),
-            Err(e) => eprintln!("error: {}", e),
+            Err(e) => {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            }
         }
     }
 }
