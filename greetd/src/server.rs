@@ -42,9 +42,9 @@ fn wrap_result<T>(res: Result<T, Error>) -> Response {
 
 async fn client_get_question(ctx: &Context) -> Response {
     match ctx.get_question().await {
-        Ok(Some((style, msg))) => Response::AuthQuestion {
-            style,
-            question: msg,
+        Ok(Some((auth_message_type, auth_message))) => Response::AuthMessage {
+            auth_message_type,
+            auth_message,
         },
         res => wrap_result(res),
     }
@@ -63,10 +63,12 @@ async fn client_handler(ctx: Rc<Context>, mut s: UnixStream) -> Result<(), Error
                 Ok(()) => client_get_question(&ctx).await,
                 res => wrap_result(res),
             },
-            Request::AnswerAuthQuestion { answer } => match ctx.post_answer(answer).await {
-                Ok(()) => client_get_question(&ctx).await,
-                res => wrap_result(res),
-            },
+            Request::PostAuthMessageResponse { response } => {
+                match ctx.post_response(response).await {
+                    Ok(()) => client_get_question(&ctx).await,
+                    res => wrap_result(res),
+                }
+            }
             Request::StartSession { cmd, env } => wrap_result(ctx.start(cmd, env).await),
             Request::CancelSession => wrap_result(ctx.cancel().await),
         };

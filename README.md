@@ -56,13 +56,13 @@ The greeter runs as a configured user, which is supposed to be one with no inter
 # Protocol
 
 ```
- ________________________________________________________
-|           |             |                    |         |
-| magic u32 | version u32 | payload_length u32 | payload |
-|___________|_____________|____________________|_________|
+ _______________________________
+|                    |         |
+| payload_length u32 | payload |
+|____________________|_________|
 ```
 
-Magic is always `0xAFBFCFDF`, version is `1`, payload is JSON.
+`payload_length` is native endianness, payload is JSON.
 
 Requests and responses are encoded the same.
 
@@ -79,14 +79,14 @@ Create a new session for the given user. This may result in authentication quest
 }
 ```
 
-### AnswerAuthQuestion
+### PostAuthMessageResponse
 
 Answer an authentication question.
 
 ```
 {
-	"type": "answer_auth_question",
-	"answer": "password"
+	"type": "post_auth_message_response",
+	"response": "password"
 }
 ```
 
@@ -140,14 +140,14 @@ The action failed.
 ```
 
 
-### AuthQuestion
+### AuthMessage
 
 The action resulted in authentication questions.
 
 ```
 {
-	"type": "auth_question",
-	"question": "Password: ",
-	"style": "secret"
+	"type": "auth_message",
+	"message": "Password: ",
+	"message_type": "secret"
 }
 ```

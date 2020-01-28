@@ -15,7 +15,7 @@ use super::{
 use crate::{error::Error, pam::session::PamSession, terminal};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum QuestionStyle {
+pub enum AuthMessageType {
     Visible,
     Secret,
     Info,
@@ -55,7 +55,7 @@ impl ParentToSessionChild {
 pub enum SessionChildToParent {
     Success,
     Error(Error),
-    PamMessage { style: QuestionStyle, msg: String },
+    PamMessage { style: AuthMessageType, msg: String },
     FinalChildPid(u64),
 }
 

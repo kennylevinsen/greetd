@@ -10,10 +10,10 @@ use crate::{
     error::Error,
     session::{
         interface::{Session, SessionChild, SessionState},
-        worker::QuestionStyle as SessQuestionStyle,
+        worker::AuthMessageType as SessAuthMessageType,
     },
 };
-use greet_proto::QuestionStyle;
+use greet_proto::AuthMessageType;
 
 struct SessionChildSet {
     child: SessionChild,
@@ -139,17 +139,17 @@ impl Context {
     }
 
     /// Retrieve a question from the session under configuration.
-    pub async fn get_question(&self) -> Result<Option<(QuestionStyle, String)>, Error> {
+    pub async fn get_question(&self) -> Result<Option<(AuthMessageType, String)>, Error> {
         let mut inner = self.inner.write().await;
         match &mut inner.configuring {
             Some(s) => match s.session.get_state().await? {
                 SessionState::Ready => Ok(None),
                 SessionState::Question(style, string) => Ok(Some((
                     match style {
-                        SessQuestionStyle::Visible => QuestionStyle::Visible,
-                        SessQuestionStyle::Secret => QuestionStyle::Secret,
-                        SessQuestionStyle::Info => QuestionStyle::Info,
-                        SessQuestionStyle::Error => QuestionStyle::Error,
+                        SessAuthMessageType::Visible => AuthMessageType::Visible,
+                        SessAuthMessageType::Secret => AuthMessageType::Secret,
+                        SessAuthMessageType::Info => AuthMessageType::Info,
+                        SessAuthMessageType::Error => AuthMessageType::Error,
                     },
                     string,
                 ))),
@@ -159,10 +159,10 @@ impl Context {
     }
 
     /// Answer a question to the session under configuration.
-    pub async fn post_answer(&self, answer: Option<String>) -> Result<(), Error> {
+    pub async fn post_response(&self, answer: Option<String>) -> Result<(), Error> {
         let mut inner = self.inner.write().await;
         match &mut inner.configuring {
-            Some(s) => s.session.post_answer(answer).await,
+            Some(s) => s.session.post_response(answer).await,
             None => Err("no session under configuration".into()),
         }
     }

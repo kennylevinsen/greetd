@@ -9,7 +9,7 @@ use ini::Ini;
 use nix::sys::utsname::uname;
 use rpassword::prompt_password_stderr;
 
-use greet_proto::{codec::SyncCodec, ErrorType, QuestionStyle, Request, Response};
+use greet_proto::{codec::SyncCodec, AuthMessageType, ErrorType, Request, Response};
 
 fn prompt_stderr(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     let stdin = io::stdin();
@@ -65,22 +65,25 @@ fn login(node: &str, cmd: &Option<String>) -> Result<LoginResult, Box<dyn std::e
         next_request.write_to(&mut stream)?;
 
         match Response::read_from(&mut stream)? {
-            Response::AuthQuestion { question, style } => {
-                let answer = match style {
-                    QuestionStyle::Visible => prompt_stderr(&question)?,
-                    QuestionStyle::Secret => prompt_password_stderr(&question)?,
-                    QuestionStyle::Info => {
-                        eprintln!("info: {}", question);
+            Response::AuthMessage {
+                auth_message,
+                auth_message_type,
+            } => {
+                let answer = match auth_message_type {
+                    AuthMessageType::Visible => prompt_stderr(&auth_message)?,
+                    AuthMessageType::Secret => prompt_password_stderr(&auth_message)?,
+                    AuthMessageType::Info => {
+                        eprintln!("info: {}", auth_message);
                         "".to_string()
                     }
-                    QuestionStyle::Error => {
-                        eprintln!("error: {}", question);
+                    AuthMessageType::Error => {
+                        eprintln!("error: {}", auth_message);
                         "".to_string()
                     }
                 };
 
-                next_request = Request::AnswerAuthQuestion {
-                    answer: Some(answer),
+                next_request = Request::PostAuthMessageResponse {
+                    response: Some(answer),
                 };
             }
             Response::Success => {

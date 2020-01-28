@@ -1,4 +1,4 @@
-use super::worker::{ParentToSessionChild, QuestionStyle, SessionChildToParent};
+use super::worker::{AuthMessageType, ParentToSessionChild, SessionChildToParent};
 use crate::pam::converse::Converse;
 
 /// SessionConv is a PAM conversation implementation that forwards questions
@@ -8,7 +8,7 @@ pub struct SessionConv<'a> {
 }
 
 impl<'a> SessionConv<'a> {
-    fn question(&self, msg: &str, style: QuestionStyle) -> Result<String, ()> {
+    fn question(&self, msg: &str, style: AuthMessageType) -> Result<String, ()> {
         let msg = SessionChildToParent::PamMessage {
             style,
             msg: msg.to_string(),
@@ -34,15 +34,15 @@ impl<'a> SessionConv<'a> {
 
 impl<'a> Converse for SessionConv<'a> {
     fn prompt_echo(&self, msg: &str) -> Result<String, ()> {
-        self.question(msg, QuestionStyle::Visible)
+        self.question(msg, AuthMessageType::Visible)
     }
     fn prompt_blind(&self, msg: &str) -> Result<String, ()> {
-        self.question(msg, QuestionStyle::Secret)
+        self.question(msg, AuthMessageType::Secret)
     }
     fn info(&self, msg: &str) -> Result<(), ()> {
-        self.question(msg, QuestionStyle::Info).map(|_| ())
+        self.question(msg, AuthMessageType::Info).map(|_| ())
     }
     fn error(&self, msg: &str) -> Result<(), ()> {
-        self.question(msg, QuestionStyle::Error).map(|_| ())
+        self.question(msg, AuthMessageType::Error).map(|_| ())
     }
 }

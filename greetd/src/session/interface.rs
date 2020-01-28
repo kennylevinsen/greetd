@@ -13,7 +13,7 @@ use async_trait::async_trait;
 
 use tokio::net::UnixDatagram as TokioUnixDatagram;
 
-use super::worker::{ParentToSessionChild, QuestionStyle, SessionChildToParent};
+use super::worker::{AuthMessageType, ParentToSessionChild, SessionChildToParent};
 use crate::error::Error;
 
 #[async_trait]
@@ -78,7 +78,7 @@ impl SessionChild {
 
 #[derive(Debug)]
 pub enum SessionState {
-    Question(QuestionStyle, String),
+    Question(AuthMessageType, String),
     Ready,
 }
 
@@ -158,9 +158,9 @@ impl Session {
         Ok(())
     }
 
-    /// Send an answer to an authentication question, or None to cahncel the
+    /// Send a response to an authentication question, or None to cancel the
     /// authentication attempt.
-    pub async fn post_answer(&mut self, answer: Option<String>) -> Result<(), Error> {
+    pub async fn post_response(&mut self, answer: Option<String>) -> Result<(), Error> {
         self.last_msg = None;
         let msg = match answer {
             Some(resp) => ParentToSessionChild::PamResponse { resp },
