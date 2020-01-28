@@ -54,11 +54,14 @@ The greeter runs as a configured user, which is supposed to be one with no inter
 
 # Protocol
 
+See `greet_proto` for detailed protocol information.
+
+## Format
+
 ```
- _______________________________
-|                    |         |
++--------------------+---------+
 | payload_length u32 | payload |
-|____________________|_________|
++--------------------+---------+
 ```
 
 `payload_length` is native endianness, payload is JSON.
