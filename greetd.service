@@ -7,8 +7,9 @@ Conflicts=getty@tty1.service
 [Service]
 Type=simple
 ExecStart=greetd
-KillMode=mixed
 IgnoreSIGPIPE=no
+SendSIGHUP=yes
+TimeoutStopSec=30s
 KeyringMode=shared
 Restart=always
 RestartSec=1
