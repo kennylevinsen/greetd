@@ -50,7 +50,7 @@ async fn client_get_question(ctx: &Context) -> Response {
     }
 }
 
-async fn client_handler(ctx: Rc<Context>, mut s: UnixStream) -> Result<(), Error> {
+async fn client_handler(ctx: &Context, mut s: UnixStream) -> Result<(), Error> {
     loop {
         let req = match Request::read_from(&mut s).await {
             Ok(req) => req,
@@ -112,44 +112,28 @@ pub async fn main(config: Config) -> Result<(), Error> {
         std::process::exit(1);
     }
 
-    let alarm_ctx = ctx.clone();
-    task::spawn_local(async move {
-        let mut alarm = signal(SignalKind::alarm()).expect("unable to listen for SIGALRM");
-        loop {
-            alarm.recv().await;
-            alarm_ctx.alarm().await.expect("unable to read alarm");
-        }
-    });
+    let mut alarm = signal(SignalKind::alarm()).expect("unable to listen for SIGALRM");
+    let mut child = signal(SignalKind::child()).expect("unable to listen for SIGCHLD");
+    let mut term = signal(SignalKind::terminate()).expect("unable to listen for SIGTERM");
 
-    let child_ctx = ctx.clone();
-    task::spawn_local(async move {
-        let mut child = signal(SignalKind::child()).expect("unable to listen for SIGCHLD");
-        loop {
-            child.recv().await;
-            child_ctx
-                .check_children()
-                .await
-                .expect("unable to check children");
-        }
-    });
-
-    let term_ctx = ctx.clone();
-    task::spawn_local(async move {
-        let mut term = signal(SignalKind::terminate()).expect("unable to listen for SIGTERM");
-        loop {
-            term.recv().await;
-            term_ctx.terminate().await.expect("unable to terminate");
-        }
-    });
-
-    while let Ok((stream, _)) = listener.accept().await {
-        let (ctx1, ctx2) = (ctx.clone(), ctx.clone());
-        task::spawn_local(async move {
-            if let Err(e) = client_handler(ctx1, stream).await {
-                ctx2.cancel().await.expect("unable to cancel session");
-                eprintln!("client loop failed: {}", e);
+    loop {
+        tokio::select! {
+            _ = child.recv() => ctx.check_children().await.expect("unable to check children"),
+            _ = alarm.recv() => ctx.alarm().await.expect("unable to read alarm"),
+            _ = term.recv() => ctx.terminate().await.expect("unable to terminate"),
+            stream = listener.accept() => match stream {
+                Ok((stream, _)) => {
+                    let client_ctx = ctx.clone();
+                    task::spawn_local(async move {
+                        if let Err(e) = client_handler(&client_ctx, stream).await {
+                            client_ctx.cancel().await.expect("unable to cancel session");
+                            eprintln!("client loop failed: {}", e);
+                        }
+                    });
+                },
+                Err(_) => break,
             }
-        });
+        }
     }
     Ok(())
 }
