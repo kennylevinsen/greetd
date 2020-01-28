@@ -28,7 +28,6 @@ The greeter runs as a configured user, which is supposed to be one with no inter
 
 - greetd, the daemon itself
 - agreety, a simple agetty greeter clone.
-- greetctl, a WIP tool meant to interact with greetd.
 - greet_proto, a protocol library in Rust. Don't worry if you don't use Rust, the protocol is very simple.
 
 ### Configuration files
@@ -147,7 +146,7 @@ The action resulted in authentication questions.
 ```
 {
 	"type": "auth_message",
-	"message": "Password: ",
+	"message": "Password:",
 	"message_type": "secret"
 }
 ```
