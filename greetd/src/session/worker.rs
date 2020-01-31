@@ -154,6 +154,16 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     let uid = Uid::from_raw(user.uid());
     let gid = Gid::from_raw(user.primary_group_id());
 
+    // Change working directory
+    let pwd = match env::set_current_dir(home) {
+        Ok(_) => home,
+        Err(_) => {
+            env::set_current_dir("/")
+                .map_err(|e| format!("unable to set working directory: {}", e))?;
+            "/"
+        }
+    };
+
     // PAM has to be provided a bunch of environment variables before
     // open_session. We pass any environment variables from our greeter
     // through here as well. This allows them to affect PAM (more
@@ -167,6 +177,9 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
         format!("LOGNAME={}", username),
         format!("HOME={}", home),
         format!("SHELL={}", shell),
+        format!("PWD={}", pwd),
+        format!("GREETD_SOCK={}", env::var("GREETD_SOCK").unwrap()),
+        format!("TERM={}", env::var("TERM").unwrap_or("linux".to_string())),
     ];
 
     for e in prepared_env.iter().chain(env.iter()) {
@@ -185,32 +198,6 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     // Prepare some strings in C format that we'll need.
     let cusername = CString::new(username)?;
     let command = format!("[ -f /etc/profile ] && source /etc/profile; [ -f $HOME/.profile ] && source $HOME/.profile; exec {}", cmd.join(" "));
-
-    // Change working directory
-    let pwd = match env::set_current_dir(home) {
-        Ok(_) => home,
-        Err(_) => {
-            env::set_current_dir("/")
-                .map_err(|e| format!("unable to set working directory: {}", e))?;
-            "/"
-        }
-    };
-
-    // Check to see if a few necessary variables are there and patch things
-    // up as needed.
-    let mut fixup_env = vec![
-        format!("PWD={}", pwd),
-        format!("GREETD_SOCK={}", env::var("GREETD_SOCK").unwrap()),
-    ];
-    if !pam.hasenv("TERM") {
-        fixup_env.push("TERM=linux".to_string());
-    }
-    if !pam.hasenv("XDG_RUNTIME_DIR") {
-        fixup_env.push(format!("XDG_RUNTIME_DIR=/run/user/{}", uid));
-    }
-    for e in fixup_env.into_iter() {
-        pam.putenv(&e)?;
-    }
 
     // Extract PAM environment for use with execve below.
     let pamenvlist = pam.getenvlist()?;

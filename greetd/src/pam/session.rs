@@ -89,10 +89,6 @@ impl<'a> PamSession<'a> {
         }
     }
 
-    pub fn hasenv(&mut self, v: &str) -> bool {
-        pam_sys::getenv(self.handle, v).is_some()
-    }
-
     pub fn set_item(&mut self, item: PamItemType, value: &str) -> Result<(), PamError> {
         let s = CString::new(value).unwrap();
         self.last_code = PamReturnCode::from(unsafe {
