@@ -105,10 +105,7 @@ fn login(node: &str, cmd: &mut Option<String>) -> Result<LoginResult, Box<dyn st
                         None => prompt_stderr("Command: ")?,
                     };
                     next_request = Request::StartSession {
-                        env: vec![
-                            format!("XDG_SESSION_DESKTOP={}", &command),
-                            format!("XDG_CURRENT_DESKTOP={}", &command),
-                        ],
+                        env: vec![],
                         cmd: vec![command.to_string()],
                     }
                 }
