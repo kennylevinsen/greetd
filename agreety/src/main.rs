@@ -55,8 +55,17 @@ enum LoginResult {
     Failure,
 }
 
-fn login(node: &str, cmd: &Option<String>) -> Result<LoginResult, Box<dyn std::error::Error>> {
-    let username = prompt_stderr(&format!("{} login: ", node))?;
+fn login(node: &str, cmd: &mut Option<String>) -> Result<LoginResult, Box<dyn std::error::Error>> {
+    let username = loop {
+        let username = prompt_stderr(&format!("{} login: ", node))?;
+        if username.starts_with('!') {
+            *cmd = Some(username[1..].to_string());
+            eprintln!("Login command changed to: {}", &username[1..]);
+            continue;
+        }
+        break username;
+    };
+
     let mut stream = UnixStream::connect(env::var("GREETD_SOCK")?)?;
 
     let mut next_request = Request::CreateSession { username };
@@ -150,7 +159,7 @@ fn main() {
         std::process::exit(0);
     }
 
-    let cmd = matches.opt_default("cmd", "");
+    let mut cmd = matches.opt_default("cmd", "");
     let max_failures: usize = match matches.opt_get("max-failures") {
         Ok(v) => v.unwrap_or(5),
         Err(e) => {
@@ -165,7 +174,7 @@ fn main() {
 
     let uts = uname();
     for _ in 0..max_failures {
-        match login(uts.nodename(), &cmd) {
+        match login(uts.nodename(), &mut cmd) {
             Ok(LoginResult::Success) => break,
             Ok(LoginResult::Failure) => eprintln!("Login incorrect\n"),
             Err(e) => {
