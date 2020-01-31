@@ -28,6 +28,7 @@ pub struct Config {
 pub enum VtSelection {
     Next,
     Current,
+    None,
     Specific(usize),
 }
 
@@ -37,7 +38,8 @@ impl Config {
             toml::Value::String(s) => match s.as_str() {
                 "next" => VtSelection::Next,
                 "current" => VtSelection::Current,
-                _ => panic!("unknown value of vt, expect next, current, or vt number"),
+                "none" => VtSelection::None,
+                _ => panic!("unknown value of vt, expect next, current, none, or vt number"),
             },
             toml::Value::Integer(u) => VtSelection::Specific(*u as usize),
             _ => panic!("unknown value of vt, expect next, current, or vt number"),
@@ -96,6 +98,7 @@ pub fn read_config() -> Config {
         config.vt = match vt.as_str() {
             "next" => toml::Value::String("next".to_string()),
             "current" => toml::Value::String("current".to_string()),
+            "none" => toml::Value::String("none".to_string()),
             v => toml::Value::Integer(v.parse().expect("could not parse vt number")),
         }
     }

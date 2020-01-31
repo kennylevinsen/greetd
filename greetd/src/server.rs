@@ -11,8 +11,7 @@ use crate::{
     config::{Config, VtSelection},
     context::Context,
     error::Error,
-    terminal,
-    terminal::Terminal,
+    terminal::{self, Terminal},
 };
 use greet_proto::{
     codec::{Error as CodecError, TokioCodec},
@@ -92,7 +91,6 @@ pub async fn main(config: Config) -> Result<(), Error> {
         .map_err(|e| format!("unable to chown greetd socket: {}", e))?;
 
     let term = Terminal::open(0).map_err(|e| format!("unable to open terminal: {}", e))?;
-
     let vt = match config.vt() {
         VtSelection::Current => term
             .vt_get_current()
@@ -100,6 +98,7 @@ pub async fn main(config: Config) -> Result<(), Error> {
         VtSelection::Next => term
             .vt_get_next()
             .map_err(|e| format!("unable to get next VT: {}", e))?,
+        VtSelection::None => 0,
         VtSelection::Specific(v) => v,
     };
     drop(term);
