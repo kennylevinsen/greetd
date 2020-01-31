@@ -27,7 +27,8 @@ impl PamError {
             | PamReturnCode::ACCT_EXPIRED
             | PamReturnCode::CRED_INSUFFICIENT
             | PamReturnCode::USER_UNKNOWN
-            | PamReturnCode::PERM_DENIED => PamError::AuthError(format!("{}: {:?}", prefix, rc)),
+            | PamReturnCode::PERM_DENIED
+            | PamReturnCode::SERVICE_ERR => PamError::AuthError(format!("{}: {:?}", prefix, rc)),
             _ => PamError::Error(format!("{}: {:?}", prefix, rc)),
         }
     }
