@@ -179,7 +179,10 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
         format!("SHELL={}", shell),
         format!("PWD={}", pwd),
         format!("GREETD_SOCK={}", env::var("GREETD_SOCK").unwrap()),
-        format!("TERM={}", env::var("TERM").unwrap_or("linux".to_string())),
+        format!(
+            "TERM={}",
+            env::var("TERM").unwrap_or_else(|_| "linux".to_string())
+        ),
     ];
 
     for e in prepared_env.iter().chain(env.iter()) {
@@ -197,7 +200,10 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
 
     // Prepare some strings in C format that we'll need.
     let cusername = CString::new(username)?;
-    let command = format!("[ -f /etc/profile ] && . /etc/profile; [ -f $HOME/.profile ] && . $HOME/.profile; exec {}", cmd.join(" "));
+    let command = format!(
+        "[ -f /etc/profile ] && . /etc/profile; [ -f $HOME/.profile ] && . $HOME/.profile; exec {}",
+        cmd.join(" ")
+    );
 
     // Extract PAM environment for use with execve below.
     let pamenvlist = pam.getenvlist()?;

@@ -101,7 +101,7 @@ fn login(node: &str, cmd: &mut Option<String>) -> Result<LoginResult, Box<dyn st
                 } else {
                     starting = true;
                     let command = match cmd {
-                        Some(cmd) => cmd.to_string(),
+                        Some(cmd) => cmd.clone(),
                         None => prompt_stderr("Command: ")?,
                     };
                     next_request = Request::StartSession {
