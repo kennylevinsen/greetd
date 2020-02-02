@@ -60,7 +60,7 @@ impl Context {
     async fn create_greeter(&self) -> Result<SessionChild, Error> {
         let mut scheduled_session = Session::new_external()?;
         scheduled_session
-            .initiate("greeter", "user", &self.greeter_user, false)
+            .initiate("login", "user", &self.greeter_user, false)
             .await?;
         match scheduled_session.get_state().await {
             Ok(SessionState::Ready) => (),
