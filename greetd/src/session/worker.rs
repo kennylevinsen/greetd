@@ -197,7 +197,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
 
     // Prepare some strings in C format that we'll need.
     let cusername = CString::new(username)?;
-    let command = format!("[ -f /etc/profile ] && source /etc/profile; [ -f $HOME/.profile ] && source $HOME/.profile; exec {}", cmd.join(" "));
+    let command = format!("[ -f /etc/profile ] && . /etc/profile; [ -f $HOME/.profile ] && . $HOME/.profile; exec {}", cmd.join(" "));
 
     // Extract PAM environment for use with execve below.
     let pamenvlist = pam.getenvlist()?;
