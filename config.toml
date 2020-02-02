@@ -4,7 +4,7 @@ vt = "next"
 
 # The greeter to run. Here is given an example that starts `agreety`, the
 # agetty-lookalike, which will start sway once login completes. Replace it
-# with your shell if you with "$SHELL" if you wish to log in to your shell.
+# with "$SHELL" if you wish to log in to your shell.
 greeter = "agreety --cmd sway"
 
 # The user to run the greeter as. The privileges this user must have depends
