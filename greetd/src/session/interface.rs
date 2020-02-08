@@ -1,12 +1,12 @@
 use std::{
+    ffi::CString,
     os::unix::{io::AsRawFd, net::UnixDatagram},
-    process::Command,
 };
 
 use nix::{
     fcntl::{fcntl, FcntlArg, FdFlag},
     sys::signal::Signal,
-    unistd::Pid,
+    unistd::{execv, fork, ForkResult, Pid},
 };
 
 use async_trait::async_trait;
@@ -102,13 +102,28 @@ impl Session {
         cur_flags.remove(FdFlag::FD_CLOEXEC);
         fcntl(raw_child, FcntlArg::F_SETFD(cur_flags))?;
 
-        let child = Command::new(std::env::current_exe()?)
-            .arg("--session-worker")
-            .arg(format!("{}", raw_child as usize))
-            .spawn()?;
+        let cur_exe = std::env::current_exe()?;
+        let bin = CString::new(cur_exe.to_str().expect("unable to get current exe name"))?;
+
+        let child = match fork().map_err(|e| format!("unable to fork: {}", e))? {
+            ForkResult::Parent { child, .. } => child,
+            ForkResult::Child => {
+                execv(
+                    &bin,
+                    &[
+                        &bin,
+                        &CString::new("--session-worker").unwrap(),
+                        &CString::new(format!("{}", raw_child as usize)).unwrap(),
+                    ],
+                )
+                .expect("unable to exec");
+
+                unreachable!("after exec");
+            }
+        };
 
         Ok(Session {
-            task: Pid::from_raw(child.id() as i32),
+            task: child,
             sock: TokioUnixDatagram::from_std(parentfd)?,
             last_msg: None,
         })
