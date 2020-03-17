@@ -7,6 +7,10 @@ fn default_vt() -> toml::Value {
     toml::Value::String("next".to_string())
 }
 
+fn default_greeter_user() -> String {
+    "greeter".to_string()
+}
+
 fn default_socket_path() -> String {
     "/run/greetd.sock".to_string()
 }
@@ -16,6 +20,7 @@ pub struct Config {
     #[serde(default = "default_vt")]
     pub vt: toml::Value,
     pub greeter: String,
+    #[serde(default = "default_greeter_user")]
     pub greeter_user: String,
 
     #[serde(default = "default_socket_path")]
