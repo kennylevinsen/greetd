@@ -83,7 +83,10 @@ pub async fn main(config: Config) -> Result<(), Error> {
     let mut listener = UnixListener::bind(&config.socket_path)
         .map_err(|e| format!("unable to open listener: {}", e))?;
 
-    let u = users::get_user_by_name(&config.greeter_user).ok_or("unable to get user struct")?;
+    let u = users::get_user_by_name(&config.greeter_user).ok_or(format!(
+        "configured greeter user '{}' not found",
+        &config.greeter_user
+    ))?;
 
     let uid = Uid::from_raw(u.uid());
     let gid = Gid::from_raw(u.primary_group_id());
@@ -117,9 +120,12 @@ pub async fn main(config: Config) -> Result<(), Error> {
 
     loop {
         tokio::select! {
-            _ = child.recv() => ctx.check_children().await.expect("unable to check children"),
-            _ = alarm.recv() => ctx.alarm().await.expect("unable to read alarm"),
-            _ = term.recv() => ctx.terminate().await.expect("unable to terminate"),
+            _ = child.recv() => ctx.check_children().await.map_err(|e| format!("check_children: {}", e))?,
+            _ = alarm.recv() => ctx.alarm().await.map_err(|e| format!("alarm: {}", e))?,
+            _ = term.recv() => {
+                ctx.terminate().await.map_err(|e| format!("terminate: {}", e))?;
+                break;
+            }
             stream = listener.accept() => match stream {
                 Ok((stream, _)) => {
                     let client_ctx = ctx.clone();
@@ -130,9 +136,10 @@ pub async fn main(config: Config) -> Result<(), Error> {
                         }
                     });
                 },
-                Err(_) => break,
+                Err(err) => return Err(format!("accept: {}", err).into()),
             }
         }
     }
+
     Ok(())
 }

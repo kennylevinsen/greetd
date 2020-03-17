@@ -274,7 +274,7 @@ impl Context {
                         }
                         None => {
                             if was_greeter {
-                                return Err("greeter died with no scheduled session".into());
+                                return Err("greeter exited without creating a session".into());
                             }
                             if sesion_length < Duration::from_secs(1) {
                                 delay_for(Duration::from_secs(1)).await;
@@ -316,6 +316,6 @@ impl Context {
         if let Some(sess) = inner.current.take() {
             sess.child.term();
         }
-        Err("terminating".into())
+        Ok(())
     }
 }
