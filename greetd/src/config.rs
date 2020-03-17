@@ -67,7 +67,12 @@ pub fn read_config() -> Config {
     opts.optopt("g", "greeter", "greeter to run", "GREETER");
     opts.optopt("u", "greeter-user", "user to run greeter as", "USER");
     opts.optopt("c", "config", "config file to use", "CONFIG_FILE");
-    opts.optopt("w", "session-worker", "start a session worker", "FD");
+    opts.optopt(
+        "w",
+        "session-worker",
+        "start a session worker (internal)",
+        "FD",
+    );
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(f) => panic!(f.to_string()),
