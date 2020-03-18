@@ -13,6 +13,6 @@ tasks:
   - rustfmt-check: |
       cd greetd
       cargo fmt -- --check
-  - build: |
+  - check: |
       cd greetd
-      cargo build
+      cargo check
