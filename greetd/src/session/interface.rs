@@ -215,15 +215,22 @@ impl Session {
         let msg = ParentToSessionChild::Start;
         msg.send(&mut self.sock).await?;
 
-        let msg = SessionChildToParent::recv(&mut self.sock).await?;
+        let sub_task = loop {
+            let msg = SessionChildToParent::recv(&mut self.sock).await?;
+
+            match msg {
+                SessionChildToParent::Error(e) => return Err(e),
+                SessionChildToParent::FinalChildPid(raw_pid) => break Pid::from_raw(raw_pid as i32),
+                SessionChildToParent::PamMessage { style, msg } => {
+                    eprintln!("pam_conv after start: {:?}, {}", style, msg);
+                    ParentToSessionChild::PamResponse{resp: "".to_string()}.send(&mut self.sock).await?;
+                    continue;
+                }
+                msg => panic!("unexpected message from session worker: {:?}", msg),
+            }
+        };
 
         self.sock.shutdown(std::net::Shutdown::Both)?;
-
-        let sub_task = match msg {
-            SessionChildToParent::Error(e) => return Err(e),
-            SessionChildToParent::FinalChildPid(raw_pid) => Pid::from_raw(raw_pid as i32),
-            msg => panic!("unexpected message from session worker: {:?}", msg),
-        };
 
         Ok(SessionChild {
             task: self.task,
