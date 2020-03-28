@@ -17,6 +17,8 @@ See the [wiki](https://man.sr.ht/~kennylevinsen/greetd) for FAQ, guides for comm
 
 ## Installation
 
+The below will install greetd, agreety and the default configuration. This looks *just* like `agetty(8)` and `login(1)`. See the manpages and the wiki for information on how to do more interesting things.
+
 ### From packages
 
 greetd and a few greeters are available in AUR for Arch Linux.
