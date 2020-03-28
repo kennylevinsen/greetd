@@ -1,155 +1,42 @@
 # greetd
 
-Generic display manager, capable of anything from text-based login to shell (replacing agetty), to graphical login to a Wayland compositor (replacing GDM/lightdm/...).
+greetd is a minimal and flexible login manager daemon that makes no assumptions about what you want to launch.
+
+Use [gtkgreet](https://git.sr.ht/~kennylevinsen/gtkgreet) to launch [sway](https://github.com/swaywm/sway) if you want a fully graphical session, or use `agreety` to launch a shell if you want a drop-in replacement for `agetty(8)` and `login(1)`.
+
+If you can run it from your shell in a TTY, greetd can start it. If it can be taught to speak a simple JSON-based IPC protocol, then it can be a greeter.
 
 ## List of known greetd greeters
 
-- agreety - The simple, text-based greeter.
-- gtkgreet - Simple GTK based greeter (xdg-shell or wlr-layer-shell, to be used with something like `cage`)
+- agreety - The simple, text-based greeter living in this repo is a simple example.
+- gtkgreet - The flagship graphical, GTK based greeter (xdg-shell or wlr-layer-shell, to be used with something like `cage`)
 - dlm - Dumb Login Manager (using fbdev)
 - wlgreet - Wayland greeter (using wlr-layer-shell, to be used with something like `sway`)
 
-## Overview
-
-greetd is a daemon which:
-
-1. Launches a configured greeter of your choice.
-2. Listens on a socket for a login message.
-3. If the credentials are valid, terminates the greeter (if it didn't do so itself) and starts the requested session application.
-4. When the session application terminates, the greeter is started once again.
-
-All the greeter of choice needs to do is to be able to write a message to a socket. It could be anything from a simple terminal application to a fully-fledged desktop environment in which one of the applications present a user prompt. Of course, the same goes for the session the user logs into.
-
-The greeter runs as a configured user, which is supposed to be one with no interesting privileges except for what the greeter itself needs to run.
-
-## Included in the box:
-
-### Binaries
-
-- greetd, the daemon itself
-- agreety, a simple agetty greeter clone.
-- greet_proto, a protocol library in Rust. Don't worry if you don't use Rust, the protocol is very simple.
-
-### Configuration files
-
-- greeter.pam, a PAM service file that should be put as `/etc/pam.d/greeter`
-- config.toml, a configuration file example
-- greetd.service, a systemd service file example.
+----
 
 ## Installation
 
-- `cp greeter.pam /etc/pam.d/greeter`
-- `cp greetd.service /etc/systemd/system/greetd.service`
-- `mkdir /etc/greetd`
-- `cp config.toml /etc/greetd/config.toml`
-- Look in the configuration file `/etc/greetd/config.toml` and edit as appropriate.
-- Start the greetd service.
+### From packages
 
-## Dumb standalone demo
+greetd and a few greeters are available in AUR for Arch Linux.
 
-(Requires the pam service installed)
+### Manually from source
 
-1. `sudo greetd --vt next --greeter "agreety" --greeter-user $LOGNAME`
-2. Answer the questions (username, password, command), and `agreety` will be replaced by the command you typed if your login is successful. See the `agreety` and `greetd` help texts for more info
+```sh
+# Compile greetd and agreety.
+cargo build --release
 
-# Protocol
+# Put things into place
+sudo cp target/release/{greetd,agreety} /usr/local/bin/
+sudo cp greetd.service /etc/systemd/system/greetd.service
+mkdir /etc/greetd
+cp config.toml /etc/greetd/config.toml
 
-See `greet_proto` for detailed protocol information.
-
-## Format
-
-```
-+--------------------+---------+
-| payload_length u32 | payload |
-+--------------------+---------+
+# Look in the configuration file `/etc/greetd/config.toml` and edit as appropriate.
+systemctl enable --now greetd
 ```
 
-`payload_length` is native endianness, payload is JSON.
+## How do I write my own greeter?
 
-Requests and responses are encoded the same.
-
-## Requests
-
-### CreateSession
-
-Create a new session for the given user. This may result in authentication questions.
-
-```
-{
-	"type": "create_session",
-	"username": "user"
-}
-```
-
-### PostAuthMessageResponse
-
-Answer an authentication question.
-
-```
-{
-	"type": "post_auth_message_response",
-	"response": "password"
-}
-```
-
-### StartSession
-
-Start a fully authenticated session.
-
-```
-{
-	"type": "start_session",
-	"cmd": ["sway"],
-	"env": [
-		"XDG_SESSION_TYPE=wayland",
-		"XDG_SESSION_DESKTOP=sway"
-	]
-}
-```
-
-### CancelSession
-
-Cancel a session being configured.
-
-```
-{
-	"type": "cancel_session"
-}
-```
-
-## Response
-
-### Success
-
-The action was successful.
-
-```
-{
-	"type": "success",
-}
-```
-
-### Error
-
-The action failed.
-
-```
-{
-	"type": "error",
-	"error_type": "loginError",
-	"description": "..."
-}
-```
-
-
-### AuthMessage
-
-The action resulted in authentication questions.
-
-```
-{
-	"type": "auth_message",
-	"message": "Password:",
-	"message_type": "secret"
-}
-```
+All you need to do is an application that can speak the greetd IPC protocol, which is documented in `greetd-ipc(7)`. See gtkgreet or agreety for inspiration.

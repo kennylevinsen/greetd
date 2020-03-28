@@ -23,7 +23,7 @@ agreety - A text-based greeter for greetd
 
 # DESCRIPTION
 
-agreety is the very simple text-based greeter, with an appearance similar to
+agreety is a very simple text-based greeter, with an appearance similar to
 *agetty*(8) and *login*(1). It is bundled with *greetd*(1).
 
 To use agreety, configure it as your greeter in your greetd config file.
