@@ -27,8 +27,11 @@ greeter process like agreety(1) to handle that aspect.
 
 # OPERATION
 
-greetd creates, authenticates and starts *sessions*. When greetd is launched,
-as no session is pending start yet, greetd starts the configured *greeter*.
+greetd operates on *sessions*. A greeter creates a session, attempts to
+authenticate a user in it, and finally, uses it start an arbitrary
+application. When greetd is launched, as no session is pending start yet,
+greetd starts the configured *greeter*, which is simply a pre-configured
+auto-login session.
 
 An IPC socket is exposed to this greeter, as reported by *GREETD_SOCK*. The
 greeter can use this to create, authenticate and finally start a session. For
