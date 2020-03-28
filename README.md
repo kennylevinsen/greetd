@@ -9,9 +9,9 @@ If you can run it from your shell in a TTY, greetd can start it. If it can be ta
 ## List of known greetd greeters
 
 - agreety - The simple, text-based greeter living in this repo is a simple example.
-- gtkgreet - The flagship graphical, GTK based greeter (xdg-shell or wlr-layer-shell, to be used with something like `cage`)
-- dlm - Dumb Login Manager (using fbdev)
-- wlgreet - Wayland greeter (using wlr-layer-shell, to be used with something like `sway`)
+- [gtkgreet](https://git.sr.ht/~kennylevinsen/gtkgreet) - The flagship graphical, GTK based greeter (xdg-shell or wlr-layer-shell, to be used with something like `cage`)
+- [dlm](https://git.sr.ht/~kennylevinsen/dlm) - Dumb Login Manager (using fbdev)
+- [wlgreet](https://git.sr.ht/~kennylevinsen/wlgreet) - Wayland greeter (using wlr-layer-shell, to be used with something like `sway`)
 
 ----
 
