@@ -79,7 +79,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
             vt,
         } => (service, class, user, authenticate, vt),
         ParentToSessionChild::Cancel => return Err("cancelled".into()),
-        _ => return Err("unexpected message".into()),
+        msg => return Err(format!("expected InitiateLogin or Cancel, got: {:?}", msg).into()),
     };
 
     let conv = Box::pin(SessionConv::new(sock));
@@ -100,7 +100,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     let cmd = match ParentToSessionChild::recv(sock)? {
         ParentToSessionChild::Args { cmd } => cmd,
         ParentToSessionChild::Cancel => return Err("cancelled".into()),
-        _ => return Err("unexpected message".into()),
+        msg => return Err(format!("expected Args or Cancel, got: {:?}", msg).into()),
     };
 
     SessionChildToParent::Success.send(sock)?;
@@ -109,7 +109,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     match ParentToSessionChild::recv(sock)? {
         ParentToSessionChild::Start => (),
         ParentToSessionChild::Cancel => return Err("cancelled".into()),
-        _ => return Err("unexpected message".into()),
+        msg => return Err(format!("expected Start or Cancel, got: {:?}", msg).into()),
     };
 
     let pam_username = pam.get_user()?;

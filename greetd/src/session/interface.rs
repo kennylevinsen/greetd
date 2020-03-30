@@ -164,7 +164,7 @@ impl Session {
             }
             SessionChildToParent::Success => Ok(SessionState::Ready),
             SessionChildToParent::Error(e) => Err(e),
-            msg => panic!("unexpected message from session worker: {:?}", msg),
+            msg => panic!("expected PamMessage, Success or Error from session worker, got: {:?}", msg),
         }
     }
 
@@ -204,7 +204,7 @@ impl Session {
         match msg {
             SessionChildToParent::Success => Ok(()),
             SessionChildToParent::Error(e) => Err(e),
-            msg => panic!("unexpected message from session worker: {:?}", msg),
+            msg => panic!("expected Success or Error from session worker, got: {:?}", msg),
         }
     }
 
@@ -226,8 +226,8 @@ impl Session {
                     ParentToSessionChild::PamResponse{resp: "".to_string()}.send(&mut self.sock).await?;
                     continue;
                 }
-                msg => panic!("unexpected message from session worker: {:?}", msg),
-            }
+                msg => panic!("expected Error or FinalChildPid from session worker, got: {:?}", msg),
+            };
         };
 
         self.sock.shutdown(std::net::Shutdown::Both)?;
