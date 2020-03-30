@@ -35,7 +35,6 @@ pub enum ParentToSessionChild {
     },
     Args {
         vt: usize,
-        env: Vec<String>,
         cmd: Vec<String>,
     },
     Start,
@@ -93,8 +92,8 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     SessionChildToParent::Success.send(sock)?;
 
     // Fetch our arguments from the parent.
-    let (vt, env, cmd) = match ParentToSessionChild::recv(sock)? {
-        ParentToSessionChild::Args { vt, env, cmd } => (vt, env, cmd),
+    let (vt, cmd) = match ParentToSessionChild::recv(sock)? {
+        ParentToSessionChild::Args { vt, cmd } => (vt, cmd),
         ParentToSessionChild::Cancel => return Err("cancelled".into()),
         _ => return Err("unexpected message".into()),
     };
@@ -185,7 +184,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
         ),
     ];
 
-    for e in prepared_env.iter().chain(env.iter()) {
+    for e in prepared_env.iter() {
         pam.putenv(e)?;
     }
 

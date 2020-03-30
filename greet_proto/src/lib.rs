@@ -68,7 +68,7 @@ pub enum Request {
 
     /// Start a successfully logged in session. This will fail if the session
     /// has pending messages or has encountered an error.
-    StartSession { cmd: Vec<String>, env: Vec<String> },
+    StartSession { cmd: Vec<String> },
 
     /// Cancel a session. This can only be done if the session has not been
     /// started. Cancel does not have to be called if an error has been

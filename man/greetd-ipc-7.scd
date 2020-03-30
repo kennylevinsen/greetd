@@ -46,8 +46,8 @@ following hexdump:
 :  response (string, optional)
 :  Answers an authentication message. If the message was informative (info, error), then a response does not need to be set in this message. The session is ready to be started if a success is returned.
 |  start_session
-:  cmd (array of strings), env (array of strings)
-:  Requests for the session to be started using the provided command line, adding the supplied environment to that created by PAM. The session will start after the greeter process terminates.
+:  cmd (array of strings)
+:  Requests for the session to be started using the provided command line. The session will start after the greeter process terminates.
 |  cancel_session
 : 
 :  Cancels the session that is currently under configuration.

@@ -68,7 +68,7 @@ async fn client_handler(ctx: &Context, mut s: UnixStream) -> Result<(), Error> {
                     res => wrap_result(res),
                 }
             }
-            Request::StartSession { cmd, env } => wrap_result(ctx.start(cmd, env).await),
+            Request::StartSession { cmd } => wrap_result(ctx.start(cmd).await),
             Request::CancelSession => wrap_result(ctx.cancel().await),
         };
 

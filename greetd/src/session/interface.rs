@@ -191,10 +191,9 @@ impl Session {
     pub async fn send_args(
         &mut self,
         cmd: Vec<String>,
-        env: Vec<String>,
         vt: usize,
     ) -> Result<(), Error> {
-        let msg = ParentToSessionChild::Args { vt, env, cmd };
+        let msg = ParentToSessionChild::Args { vt, cmd };
         msg.send(&mut self.sock).await?;
 
         let msg = SessionChildToParent::recv(&mut self.sock).await?;
