@@ -216,9 +216,7 @@ impl Session {
         msg.send(&mut self.sock).await?;
 
         let sub_task = loop {
-            let msg = SessionChildToParent::recv(&mut self.sock).await?;
-
-            match msg {
+            match SessionChildToParent::recv(&mut self.sock).await? {
                 SessionChildToParent::Error(e) => return Err(e),
                 SessionChildToParent::FinalChildPid(raw_pid) => break Pid::from_raw(raw_pid as i32),
                 SessionChildToParent::PamMessage { style, msg } => {
