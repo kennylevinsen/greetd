@@ -164,7 +164,10 @@ impl Session {
             }
             SessionChildToParent::Success => Ok(SessionState::Ready),
             SessionChildToParent::Error(e) => Err(e),
-            msg => panic!("expected PamMessage, Success or Error from session worker, got: {:?}", msg),
+            msg => panic!(
+                "expected PamMessage, Success or Error from session worker, got: {:?}",
+                msg
+            ),
         }
     }
 
@@ -179,17 +182,16 @@ impl Session {
     /// authentication attempt.
     pub async fn post_response(&mut self, answer: Option<String>) -> Result<(), Error> {
         self.last_msg = None;
-        ParentToSessionChild::PamResponse { resp: answer }.send(&mut self.sock).await?;
+        ParentToSessionChild::PamResponse { resp: answer }
+            .send(&mut self.sock)
+            .await?;
         Ok(())
     }
 
     ///
     /// Send the arguments that will be used to start the session.
     ///
-    pub async fn send_args(
-        &mut self,
-        cmd: Vec<String>,
-    ) -> Result<(), Error> {
+    pub async fn send_args(&mut self, cmd: Vec<String>) -> Result<(), Error> {
         let msg = ParentToSessionChild::Args { cmd };
         msg.send(&mut self.sock).await?;
 
@@ -200,7 +202,10 @@ impl Session {
         match msg {
             SessionChildToParent::Success => Ok(()),
             SessionChildToParent::Error(e) => Err(e),
-            msg => panic!("expected Success or Error from session worker, got: {:?}", msg),
+            msg => panic!(
+                "expected Success or Error from session worker, got: {:?}",
+                msg
+            ),
         }
     }
 
@@ -214,13 +219,20 @@ impl Session {
         let sub_task = loop {
             match SessionChildToParent::recv(&mut self.sock).await? {
                 SessionChildToParent::Error(e) => return Err(e),
-                SessionChildToParent::FinalChildPid(raw_pid) => break Pid::from_raw(raw_pid as i32),
+                SessionChildToParent::FinalChildPid(raw_pid) => {
+                    break Pid::from_raw(raw_pid as i32)
+                }
                 SessionChildToParent::PamMessage { style, msg } => {
                     eprintln!("pam_conv after start: {:?}, {}", style, msg);
-                    ParentToSessionChild::PamResponse{resp: None}.send(&mut self.sock).await?;
+                    ParentToSessionChild::PamResponse { resp: None }
+                        .send(&mut self.sock)
+                        .await?;
                     continue;
                 }
-                msg => panic!("expected Error or FinalChildPid from session worker, got: {:?}", msg),
+                msg => panic!(
+                    "expected Error or FinalChildPid from session worker, got: {:?}",
+                    msg
+                ),
             };
         };
 
