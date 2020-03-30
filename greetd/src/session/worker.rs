@@ -29,12 +29,12 @@ pub enum ParentToSessionChild {
         class: String,
         user: String,
         authenticate: bool,
+        vt: usize,
     },
     PamResponse {
         resp: String,
     },
     Args {
-        vt: usize,
         cmd: Vec<String>,
     },
     Start,
@@ -70,13 +70,14 @@ impl SessionChildToParent {
 /// responsible for the entirety of the session setup and execution. It is
 /// started by Session::start.
 fn worker(sock: &UnixDatagram) -> Result<(), Error> {
-    let (service, class, user, authenticate) = match ParentToSessionChild::recv(sock)? {
+    let (service, class, user, authenticate, vt) = match ParentToSessionChild::recv(sock)? {
         ParentToSessionChild::InitiateLogin {
             service,
             class,
             user,
             authenticate,
-        } => (service, class, user, authenticate),
+            vt,
+        } => (service, class, user, authenticate, vt),
         ParentToSessionChild::Cancel => return Err("cancelled".into()),
         _ => return Err("unexpected message".into()),
     };
@@ -92,8 +93,8 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     SessionChildToParent::Success.send(sock)?;
 
     // Fetch our arguments from the parent.
-    let (vt, cmd) = match ParentToSessionChild::recv(sock)? {
-        ParentToSessionChild::Args { vt, cmd } => (vt, cmd),
+    let cmd = match ParentToSessionChild::recv(sock)? {
+        ParentToSessionChild::Args { cmd } => cmd,
         ParentToSessionChild::Cancel => return Err("cancelled".into()),
         _ => return Err("unexpected message".into()),
     };

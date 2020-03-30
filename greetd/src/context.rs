@@ -60,7 +60,7 @@ impl Context {
     async fn create_greeter(&self) -> Result<SessionChild, Error> {
         let mut scheduled_session = Session::new_external()?;
         scheduled_session
-            .initiate("login", "greeter", &self.greeter_user, false)
+            .initiate("login", "greeter", &self.greeter_user, false, self.vt)
             .await?;
         match scheduled_session.get_state().await {
             Ok(SessionState::Ready) => (),
@@ -69,7 +69,7 @@ impl Context {
         }
 
         scheduled_session
-            .send_args(vec![self.greeter_bin.to_string()], self.vt)
+            .send_args(vec![self.greeter_bin.to_string()])
             .await?;
         scheduled_session.start().await
     }
@@ -113,7 +113,7 @@ impl Context {
         };
         session_set
             .session
-            .initiate("login", "user", &username, true)
+            .initiate("login", "user", &username, true, self.vt)
             .await?;
 
         let mut session = Some(session_set);
@@ -175,7 +175,7 @@ impl Context {
             Some(s) => match s.session.get_state().await? {
                 SessionState::Ready => {
                     // Send our arguments to the session.
-                    s.session.send_args(cmd, self.vt).await?;
+                    s.session.send_args(cmd).await?;
 
                     let mut inner = self.inner.write().await;
                     std::mem::swap(&mut session, &mut inner.scheduled);

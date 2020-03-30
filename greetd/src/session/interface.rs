@@ -136,12 +136,14 @@ impl Session {
         class: &str,
         user: &str,
         authenticate: bool,
+        vt: usize,
     ) -> Result<(), Error> {
         let msg = ParentToSessionChild::InitiateLogin {
             service: service.to_string(),
             class: class.to_string(),
             user: user.to_string(),
             authenticate,
+            vt,
         };
         msg.send(&mut self.sock).await?;
         Ok(())
@@ -191,9 +193,8 @@ impl Session {
     pub async fn send_args(
         &mut self,
         cmd: Vec<String>,
-        vt: usize,
     ) -> Result<(), Error> {
-        let msg = ParentToSessionChild::Args { vt, cmd };
+        let msg = ParentToSessionChild::Args { cmd };
         msg.send(&mut self.sock).await?;
 
         let msg = SessionChildToParent::recv(&mut self.sock).await?;
