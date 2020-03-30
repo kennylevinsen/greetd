@@ -65,7 +65,7 @@ impl Context {
         loop {
             match scheduled_session.get_state().await {
                 Ok(SessionState::Ready) => break,
-                Ok(SessionState::Question(_, _)) => scheduled_session.post_response(Some("".to_string())).await?,
+                Ok(SessionState::Question(_, _)) => scheduled_session.post_response(None).await?,
                 Err(err) => return Err(format!("session start failed: {}", err).into()),
             }
         }

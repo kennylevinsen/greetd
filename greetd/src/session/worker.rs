@@ -32,7 +32,7 @@ pub enum ParentToSessionChild {
         vt: usize,
     },
     PamResponse {
-        resp: String,
+        resp: Option<String>,
     },
     Args {
         cmd: Vec<String>,

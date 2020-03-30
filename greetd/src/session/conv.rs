@@ -8,7 +8,7 @@ pub struct SessionConv<'a> {
 }
 
 impl<'a> SessionConv<'a> {
-    fn question(&self, msg: &str, style: AuthMessageType) -> Result<String, ()> {
+    fn question(&self, msg: &str, style: AuthMessageType) -> Result<Option<String>, ()> {
         let msg = SessionChildToParent::PamMessage {
             style,
             msg: msg.to_string(),
@@ -34,15 +34,27 @@ impl<'a> SessionConv<'a> {
 
 impl<'a> Converse for SessionConv<'a> {
     fn prompt_echo(&self, msg: &str) -> Result<String, ()> {
-        self.question(msg, AuthMessageType::Visible)
+        match self.question(msg, AuthMessageType::Visible) {
+            Ok(Some(response)) => Ok(response),
+            _ => Err(()),
+        }
     }
     fn prompt_blind(&self, msg: &str) -> Result<String, ()> {
-        self.question(msg, AuthMessageType::Secret)
+        match self.question(msg, AuthMessageType::Secret) {
+            Ok(Some(response)) => Ok(response),
+            _ => Err(()),
+        }
     }
     fn info(&self, msg: &str) -> Result<(), ()> {
-        self.question(msg, AuthMessageType::Info).map(|_| ())
+        match self.question(msg, AuthMessageType::Info) {
+            Ok(None) => Ok(()),
+            _ => Err(()),
+        }
     }
     fn error(&self, msg: &str) -> Result<(), ()> {
-        self.question(msg, AuthMessageType::Error).map(|_| ())
+        match self.question(msg, AuthMessageType::Error) {
+            Ok(None) => Ok(()),
+            _ => Err(()),
+        }
     }
 }

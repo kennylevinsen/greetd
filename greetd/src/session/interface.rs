@@ -179,11 +179,7 @@ impl Session {
     /// authentication attempt.
     pub async fn post_response(&mut self, answer: Option<String>) -> Result<(), Error> {
         self.last_msg = None;
-        let msg = match answer {
-            Some(resp) => ParentToSessionChild::PamResponse { resp },
-            None => ParentToSessionChild::Cancel,
-        };
-        msg.send(&mut self.sock).await?;
+        ParentToSessionChild::PamResponse { resp: answer }.send(&mut self.sock).await?;
         Ok(())
     }
 
@@ -221,7 +217,7 @@ impl Session {
                 SessionChildToParent::FinalChildPid(raw_pid) => break Pid::from_raw(raw_pid as i32),
                 SessionChildToParent::PamMessage { style, msg } => {
                     eprintln!("pam_conv after start: {:?}, {}", style, msg);
-                    ParentToSessionChild::PamResponse{resp: "".to_string()}.send(&mut self.sock).await?;
+                    ParentToSessionChild::PamResponse{resp: None}.send(&mut self.sock).await?;
                     continue;
                 }
                 msg => panic!("expected Error or FinalChildPid from session worker, got: {:?}", msg),
