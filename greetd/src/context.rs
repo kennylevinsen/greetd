@@ -62,10 +62,12 @@ impl Context {
         scheduled_session
             .initiate("login", "greeter", &self.greeter_user, false, self.vt)
             .await?;
-        match scheduled_session.get_state().await {
-            Ok(SessionState::Ready) => (),
-            Ok(state) => return Err(format!("unexpected state: {:?}", state).into()),
-            Err(err) => return Err(format!("session start failed: {}", err).into()),
+        loop {
+            match scheduled_session.get_state().await {
+                Ok(SessionState::Ready) => break,
+                Ok(SessionState::Question(_, _)) => scheduled_session.post_response(Some("".to_string())).await?,
+                Err(err) => return Err(format!("session start failed: {}", err).into()),
+            }
         }
 
         scheduled_session
