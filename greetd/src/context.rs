@@ -38,10 +38,16 @@ pub struct Context {
     greeter_bin: String,
     greeter_user: String,
     vt: usize,
+    pam_service: String,
 }
 
 impl Context {
-    pub fn new(greeter_bin: String, greeter_user: String, vt: usize) -> Context {
+    pub fn new(
+        greeter_bin: String,
+        greeter_user: String,
+        vt: usize,
+        pam_service: String,
+    ) -> Context {
         Context {
             inner: RwLock::new(ContextInner {
                 current: None,
@@ -51,6 +57,7 @@ impl Context {
             greeter_bin,
             greeter_user,
             vt,
+            pam_service,
         }
     }
 
@@ -60,7 +67,13 @@ impl Context {
     async fn create_greeter(&self) -> Result<SessionChild, Error> {
         let mut scheduled_session = Session::new_external()?;
         scheduled_session
-            .initiate("login", "greeter", &self.greeter_user, false, self.vt)
+            .initiate(
+                &self.pam_service,
+                "greeter",
+                &self.greeter_user,
+                false,
+                self.vt,
+            )
             .await?;
         loop {
             match scheduled_session.get_state().await {
@@ -115,7 +128,7 @@ impl Context {
         };
         session_set
             .session
-            .initiate("login", "user", &username, true, self.vt)
+            .initiate(&self.pam_service, "user", &username, true, self.vt)
             .await?;
 
         let mut session = Some(session_set);

@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{path::Path, rc::Rc};
 
 use nix::unistd::{chown, Gid, Uid};
 use tokio::{
@@ -88,6 +88,15 @@ pub async fn main(config: Config) -> Result<(), Error> {
         &config.greeter_user
     ))?;
 
+    let service = if Path::new("/etc/pam.d/greetd").exists() {
+        "greetd"
+    } else if Path::new("/etc/pam.d/login").exists() {
+        eprintln!("warning: PAM 'greetd' service missing, falling back to 'login'");
+        "login"
+    } else {
+        return Err("PAM 'greetd' service missing".into());
+    };
+
     let uid = Uid::from_raw(u.uid());
     let gid = Gid::from_raw(u.primary_group_id());
     chown(config.socket_path.as_str(), Some(uid), Some(gid))
@@ -106,7 +115,12 @@ pub async fn main(config: Config) -> Result<(), Error> {
     };
     drop(term);
 
-    let ctx = Rc::new(Context::new(config.greeter, config.greeter_user, vt));
+    let ctx = Rc::new(Context::new(
+        config.greeter,
+        config.greeter_user,
+        vt,
+        service.to_string(),
+    ));
     if let Err(e) = ctx.greet().await {
         eprintln!("unable to start greeter: {}", e);
         reset_vt(vt).map_err(|e| format!("unable to reset VT: {}", e))?;
