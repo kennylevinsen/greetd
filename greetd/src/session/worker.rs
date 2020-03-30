@@ -90,6 +90,10 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     }
     pam.acct_mgmt(PamFlag::NONE)?;
 
+    // Not the credentials you think.
+    pam.setcred(PamFlag::ESTABLISH_CRED)?;
+
+    // Mark authentication as a success.
     SessionChildToParent::Success.send(sock)?;
 
     // Fetch our arguments from the parent.
@@ -191,9 +195,6 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
 
     // Tell PAM what TTY we're targetting, which is used by logind.
     pam.set_item(PamItemType::TTY, &format!("/dev/tty{}", vt))?;
-
-    // Not the credentials you think.
-    pam.setcred(PamFlag::ESTABLISH_CRED)?;
 
     // Session time!
     pam.open_session(PamFlag::NONE)?;
