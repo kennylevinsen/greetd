@@ -61,19 +61,18 @@ impl Context {
         }
     }
 
-    /// Directly start a greeter session, bypassing the normal scheduling. This
-    /// function does not take the inner lock, and can thus be used while it is
-    /// held.
-    async fn create_greeter(&self) -> Result<SessionChild, Error> {
+    /// Directly start an unauthenticated session, bypassing the normal
+    /// scheduling. This function does not take the inner lock, and can thus
+    /// be used while it is held.
+    async fn start_unauthenticated_session(
+        &self,
+        class: &str,
+        user: &str,
+        cmd: Vec<String>,
+    ) -> Result<SessionChild, Error> {
         let mut scheduled_session = Session::new_external()?;
         scheduled_session
-            .initiate(
-                &self.pam_service,
-                "greeter",
-                &self.greeter_user,
-                false,
-                self.vt,
-            )
+            .initiate(&self.pam_service, class, user, false, self.vt)
             .await?;
         loop {
             match scheduled_session.get_state().await {
@@ -83,10 +82,20 @@ impl Context {
             }
         }
 
-        scheduled_session
-            .send_args(vec![self.greeter_bin.to_string()])
-            .await?;
+        scheduled_session.send_args(cmd).await?;
         scheduled_session.start().await
+    }
+
+    /// Directly start a greeter session, bypassing the normal scheduling. This
+    /// function does not take the inner lock, and can thus be used while it is
+    /// held.
+    async fn start_greeter(&self) -> Result<SessionChild, Error> {
+        self.start_unauthenticated_session(
+            "greeter",
+            &self.greeter_user,
+            vec![self.greeter_bin.to_string()],
+        )
+        .await
     }
 
     /// Directly start a greeter session, bypassing the normal scheduling.
@@ -100,9 +109,29 @@ impl Context {
 
         let mut inner = self.inner.write().await;
         inner.current = Some(SessionChildSet {
-            child: self.create_greeter().await?,
+            child: self.start_greeter().await?,
             time: Instant::now(),
             is_greeter: true,
+        });
+        Ok(())
+    }
+
+    /// Directly start an initial session, bypassing the normal scheduling.
+    pub async fn start_user_session(&self, user: &str, cmd: Vec<String>) -> Result<(), Error> {
+        {
+            let inner = self.inner.read().await;
+            if inner.current.is_some() {
+                return Err("session already active".into());
+            }
+        }
+
+        let mut inner = self.inner.write().await;
+        inner.current = Some(SessionChildSet {
+            child: self
+                .start_unauthenticated_session("user", user, cmd)
+                .await?,
+            time: Instant::now(),
+            is_greeter: false,
         });
         Ok(())
     }
@@ -295,7 +324,7 @@ impl Context {
                                 delay_for(Duration::from_secs(1)).await;
                             }
                             inner.current = Some(SessionChildSet {
-                                child: self.create_greeter().await?,
+                                child: self.start_greeter().await?,
                                 time: Instant::now(),
                                 is_greeter: true,
                             });

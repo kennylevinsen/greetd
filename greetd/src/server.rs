@@ -126,11 +126,20 @@ pub async fn main(config: Config) -> Result<(), Error> {
         service.to_string(),
     ));
 
-    if let Err(e) = ctx.greet().await {
-        eprintln!("unable to start greeter: {}", e);
-        reset_vt(vt).map_err(|e| format!("unable to reset VT: {}", e))?;
+    if let Some(s) = config.file.initial_session {
+        if let Err(e) = ctx.start_user_session(&s.user, vec![s.command]).await {
+            eprintln!("unable to start greeter: {}", e);
+            reset_vt(vt).map_err(|e| format!("unable to reset VT: {}", e))?;
 
-        std::process::exit(1);
+            std::process::exit(1);
+        }
+    } else {
+        if let Err(e) = ctx.greet().await {
+            eprintln!("unable to start greeter: {}", e);
+            reset_vt(vt).map_err(|e| format!("unable to reset VT: {}", e))?;
+
+            std::process::exit(1);
+        }
     }
 
     let mut alarm = signal(SignalKind::alarm()).expect("unable to listen for SIGALRM");

@@ -74,6 +74,7 @@ pub fn read_config() -> Result<Config, Error> {
                 user: "greeter".to_string(),
                 command: "".to_string(),
             },
+            initial_session: None,
             terminal: Default::default(),
         },
     };
@@ -87,6 +88,18 @@ pub fn read_config() -> Result<Config, Error> {
         return Err(Error::ConfigError(
             "no default session user specified".to_string(),
         ));
+    }
+    if let Some(s) = &file.initial_session {
+        if s.user.is_empty() {
+            return Err(Error::ConfigError(
+                "initial session enabled but contained no user".to_string(),
+            ));
+        }
+        if s.command.is_empty() {
+            return Err(Error::ConfigError(
+                "initial session enabled but contained no command".to_string(),
+            ));
+        }
     }
 
     Ok(Config { file, internal })

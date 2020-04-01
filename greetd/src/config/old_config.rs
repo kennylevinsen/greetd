@@ -31,5 +31,6 @@ pub fn try_read_old_config(s: &str) -> Result<super::ConfigFile, Error> {
             user: oldconfig.greeter_user,
             command: oldconfig.greeter,
         },
+        initial_session: None,
     })
 }

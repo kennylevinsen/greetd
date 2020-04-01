@@ -8,6 +8,12 @@ pub struct ConfigDefaultSession {
     pub user: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ConfigInitialSession {
+    pub command: String,
+    pub user: String,
+}
+
 pub struct ConfigInternal {
     pub socket_path: String,
     pub session_worker: usize,
@@ -29,6 +35,7 @@ impl Default for ConfigTerminal {
 pub struct ConfigFile {
     pub terminal: ConfigTerminal,
     pub default_session: ConfigDefaultSession,
+    pub initial_session: Option<ConfigInitialSession>,
 }
 
 pub struct Config {
