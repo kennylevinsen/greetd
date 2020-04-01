@@ -21,7 +21,7 @@ use tokio::task;
 use crate::{error::Error, session::worker};
 
 async fn session_worker_main(config: config::Config) -> Result<(), Error> {
-    let raw_fd = config.session_worker as RawFd;
+    let raw_fd = config.internal.session_worker as RawFd;
     let mut cur_flags = unsafe { FdFlag::from_bits_unchecked(fcntl(raw_fd, FcntlArg::F_GETFD)?) };
     cur_flags.insert(FdFlag::FD_CLOEXEC);
     fcntl(raw_fd, FcntlArg::F_SETFD(cur_flags))?;
@@ -31,11 +31,17 @@ async fn session_worker_main(config: config::Config) -> Result<(), Error> {
 
 #[tokio::main]
 async fn main() {
-    let config = config::read_config();
+    let config = match config::read_config() {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    };
     mlockall(MlockAllFlags::all()).expect("unable to lock pages");
     let res = task::LocalSet::new()
         .run_until(async move {
-            if config.session_worker > 0 {
+            if config.internal.session_worker > 0 {
                 session_worker_main(config).await
             } else {
                 server::main(config).await

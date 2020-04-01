@@ -16,6 +16,9 @@ pub enum Error {
 
     #[error("i/o error: {0}")]
     Io(String),
+
+    #[error("configuration error: {0}")]
+    ConfigError(String),
 }
 
 impl From<Box<dyn std::error::Error>> for Error {

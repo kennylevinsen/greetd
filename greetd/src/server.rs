@@ -77,16 +77,11 @@ async fn client_handler(ctx: &Context, mut s: UnixStream) -> Result<(), Error> {
 }
 
 pub async fn main(config: Config) -> Result<(), Error> {
-    std::env::set_var("GREETD_SOCK", &config.socket_path);
+    std::env::set_var("GREETD_SOCK", &config.internal.socket_path);
 
-    let _ = std::fs::remove_file(config.socket_path.clone());
-    let mut listener = UnixListener::bind(&config.socket_path)
+    let _ = std::fs::remove_file(&config.internal.socket_path);
+    let mut listener = UnixListener::bind(&config.internal.socket_path)
         .map_err(|e| format!("unable to open listener: {}", e))?;
-
-    let u = users::get_user_by_name(&config.greeter_user).ok_or(format!(
-        "configured greeter user '{}' not found",
-        &config.greeter_user
-    ))?;
 
     let service = if Path::new("/etc/pam.d/greetd").exists() {
         "greetd"
@@ -97,13 +92,22 @@ pub async fn main(config: Config) -> Result<(), Error> {
         return Err("PAM 'greetd' service missing".into());
     };
 
+    let u = users::get_user_by_name(&config.file.default_session.user).ok_or(format!(
+        "configured default session user '{}' not found",
+        &config.file.default_session.user
+    ))?;
+
     let uid = Uid::from_raw(u.uid());
     let gid = Gid::from_raw(u.primary_group_id());
-    chown(config.socket_path.as_str(), Some(uid), Some(gid))
-        .map_err(|e| format!("unable to chown greetd socket: {}", e))?;
+    chown(config.internal.socket_path.as_str(), Some(uid), Some(gid)).map_err(|e| {
+        format!(
+            "unable to chown greetd socket at {}: {}",
+            &config.internal.socket_path, e
+        )
+    })?;
 
     let term = Terminal::open(0).map_err(|e| format!("unable to open terminal: {}", e))?;
-    let vt = match config.vt() {
+    let vt = match config.file.terminal.vt {
         VtSelection::Current => term
             .vt_get_current()
             .map_err(|e| format!("unable to get current VT: {}", e))?,
@@ -116,11 +120,12 @@ pub async fn main(config: Config) -> Result<(), Error> {
     drop(term);
 
     let ctx = Rc::new(Context::new(
-        config.greeter,
-        config.greeter_user,
+        config.file.default_session.command,
+        config.file.default_session.user,
         vt,
         service.to_string(),
     ));
+
     if let Err(e) = ctx.greet().await {
         eprintln!("unable to start greeter: {}", e);
         reset_vt(vt).map_err(|e| format!("unable to reset VT: {}", e))?;

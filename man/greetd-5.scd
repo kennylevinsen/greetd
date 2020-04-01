@@ -10,6 +10,10 @@ greetd uses a simple TOML configuration file to define its behavior.
 
 # CONFIGURATION
 
+## terminal
+
+This section contains terminal configuration.
+
 *vt* = num|"next"|"current"
 	The VT to run on. Can be the number of a specific VT, "next" to select the
 	next available VT, or "current" to stay wherever greetd was started. The
@@ -23,15 +27,43 @@ greetd uses a simple TOML configuration file to define its behavior.
 
 	Use of a specific VT with appropriate conflict avoidance is recommended.
 
-*greeter* = command-line
-	The command-line to run to start the greeter, e.g. "agreety -c sway". The
-	greeter will be run when greetd is initially launched, and every time a
-	created session terminates.
+## default_session
+
+This section describes the default session, also referred to as the "greeter".
+
+*command* = command-line
+	The command-line to run to start the default session, e.g. "agreety -c sway".
+	The default session is automatically started when no other session is
+	running, such as when user session terminate, and when greetd is initially
+	started with no initial session configured.
 
 	See *greetd-ipc*(7) for information on how a greeter can create sessions.
 
-*greeter_user* = user
+*user* = user
 	The user to use for running the greeter. Defaults to "greeter".
+
+## initial_session
+
+This optional section describes the initial session, commonly referred to as
+"auto-login".
+
+*command* = command-line
+	The command-line to run to start the initial session, e.g. "sway". The
+	initial session will be run when exactly once when greetd is initially
+	launched.
+
+*user* = user
+	The user to use for running the initial session.
+
+# EXAMPLE
+
+```toml
+[terminal]
+vt = 1
+
+[default_session]
+command = "agreety -c sway"
+```
 
 # AUTHORS
 
