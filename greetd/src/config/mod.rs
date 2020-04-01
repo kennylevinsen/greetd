@@ -15,7 +15,8 @@ pub use vtselection::VtSelection;
 
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} [options]", program);
-    print!("{}", opts.usage(&brief));
+    println!("{}", opts.usage(&brief));
+    println!("For more details, see greetd(1).");
 }
 
 pub fn read_config() -> Result<Config, Error> {
