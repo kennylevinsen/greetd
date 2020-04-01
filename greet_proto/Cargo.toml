@@ -1,6 +1,6 @@
 [package]
 name = "greet_proto"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Kenny Levinsen <kl@kl.wtf>"]
 edition = "2018"
 
