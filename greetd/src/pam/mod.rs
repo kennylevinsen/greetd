@@ -11,7 +11,7 @@ use pam_sys::PamReturnCode;
 pub enum PamError {
     #[error("{0}")]
     Error(String),
-    #[error("authentication error: {0}")]
+    #[error("{0}")]
     AuthError(String),
     #[error("abort error: {0}")]
     AbortError(String),
