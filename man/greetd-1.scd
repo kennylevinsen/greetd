@@ -2,7 +2,7 @@ greetd(1)
 
 # NAME
 
-greetd - A greeter daemon / login manager daemon
+greetd - A login manager daemon
 
 # SYNOPSIS
 
@@ -29,9 +29,14 @@ greeter process like agreety(1) to handle that aspect.
 
 greetd operates on *sessions*. A greeter creates a session, attempts to
 authenticate a user in it, and finally, uses it start an arbitrary
-application. When greetd is launched, as no session is pending start yet,
-greetd starts the configured *greeter*, which is simply a pre-configured
-auto-login session.
+application.
+
+There are two types of preconfigured sessions: The default session, also known
+as the *greeter*, and the optional initial session, serving the purpose of
+"auto-login". The initial session, if configured, is started once when greetd
+launches. The default session is started on launch if an initial session is
+not configured, and started again whenever no session is running, such as when
+the user logs out.
 
 An IPC socket is exposed to this greeter, as reported by *GREETD_SOCK*. The
 greeter can use this to create, authenticate and finally start a session. For
@@ -42,7 +47,7 @@ greetd will start the new session. Once this session terminates, the process
 starts over.
 
 greetd makes no assumptions about any sessions, including the greeter. They
-can be text-based, running in the active console, or full on graphical
+can be text-based, running in the active console, or full-on graphical
 environments.
 
 # CONFIGURATION

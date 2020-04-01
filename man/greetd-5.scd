@@ -10,6 +10,16 @@ greetd uses a simple TOML configuration file to define its behavior.
 
 # CONFIGURATION
 
+The configuration is divided into *sections*. Sections are delimited like so:
+
+```
+[section_name]
+config_key = value
+```
+
+Configuration keys can be integer literals, or quote-delimited strings. The
+configuration sections are described below.
+
 ## terminal
 
 This section contains terminal configuration.
@@ -29,7 +39,7 @@ This section contains terminal configuration.
 
 ## default_session
 
-This section describes the default session, also referred to as the "greeter".
+This section describes the default session, also referred to as the *greeter*.
 
 *command* = command-line
 	The command-line to run to start the default session, e.g. "agreety -c sway".
@@ -55,14 +65,30 @@ This optional section describes the initial session, commonly referred to as
 *user* = user
 	The user to use for running the initial session.
 
-# EXAMPLE
+# EXAMPLES
 
-```toml
+## Regular setup with agreety and sway
+
+```
 [terminal]
 vt = 1
 
 [default_session]
 command = "agreety -c sway"
+```
+
+## Auto-login
+
+```
+[terminal]
+vt = 1
+
+[default_session]
+command = "agreety -c sway"
+
+[initial_session]
+command = "sway"
+user = "john"
 ```
 
 # AUTHORS
