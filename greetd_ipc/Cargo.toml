@@ -1,6 +1,6 @@
 [package]
 name = "greetd_ipc"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["Kenny Levinsen"]
 edition = "2018"
 license = "GPL-3.0"
@@ -8,6 +8,9 @@ homepage = "https://kl.wtf/projects/greetd"
 repository = "https://git.sr.ht/~kennylevinsen/greetd/"
 description = "An implementation of the greetd IPC protocol"
 keywords = ["greetd"]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 codec = ["thiserror"]
