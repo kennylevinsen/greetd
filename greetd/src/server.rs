@@ -13,7 +13,7 @@ use crate::{
     error::Error,
     terminal::{self, Terminal},
 };
-use greet_proto::{
+use greetd_ipc::{
     codec::{Error as CodecError, TokioCodec},
     ErrorType, Request, Response,
 };

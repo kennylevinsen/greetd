@@ -1,8 +1,11 @@
 [package]
 name = "greetd"
 version = "0.5.0"
-authors = ["Kenny Levinsen <kl@kl.wtf>"]
+authors = ["Kenny Levinsen"]
 edition = "2018"
+license = "GPL-3.0"
+homepage = "https://kl.wtf/projects/greetd"
+repository = "https://git.sr.ht/~kennylevinsen/greetd/"
 
 [dependencies]
 nix = "0.16"
@@ -11,7 +14,7 @@ users = "0.9.1"
 toml = "0.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-greet_proto = { path = "../greet_proto", features = ["tokio-codec"] }
+greetd_ipc = { path = "../greetd_ipc", features = ["tokio-codec"] }
 libc = "0.2"
 futures = "0.3"
 tokio = { version = "0.2", features = ["net", "sync", "macros", "signal", "rt-util", "io-util", "time"] }

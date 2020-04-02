@@ -1,8 +1,13 @@
 [package]
-name = "greet_proto"
+name = "greetd_ipc"
 version = "0.5.0"
-authors = ["Kenny Levinsen <kl@kl.wtf>"]
+authors = ["Kenny Levinsen"]
 edition = "2018"
+license = "GPL-3.0"
+homepage = "https://kl.wtf/projects/greetd"
+repository = "https://git.sr.ht/~kennylevinsen/greetd/"
+description = "An implementation of the greetd IPC protocol"
+keywords = ["greetd"]
 
 [features]
 codec = ["thiserror"]

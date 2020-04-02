@@ -1,6 +1,6 @@
-//! # `greetd` protocol library
+//! # `greetd` IPC protocol library
 //!
-//! This library implements the greetd wire protocol.
+//! This library implements the [greetd](https://git.sr.ht/~kennylevinsen/greetd) IPC protocol.
 //!
 //! The library exposes a [Request](enum.Request.html) and a
 //! [Response](enum.Response.html) enum, representing the valid protocol

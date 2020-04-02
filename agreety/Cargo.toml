@@ -1,11 +1,14 @@
 [package]
 name = "agreety"
 version = "0.5.0"
-authors = ["Kenny Levinsen <kl@kl.wtf>"]
+authors = ["Kenny Levinsen"]
 edition = "2018"
+license = "GPL-3.0"
+homepage = "https://kl.wtf/projects/agreety"
+repository = "https://git.sr.ht/~kennylevinsen/greetd/"
 
 [dependencies]
-greet_proto = { path = "../greet_proto", features = ["sync-codec"]}
+greetd_ipc = { path = "../greetd_ipc", features = ["sync-codec"]}
 rust-ini = "0.14"
 rpassword = "4.0"
 getopts = "0.2"

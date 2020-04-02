@@ -39,12 +39,12 @@ impl From<crate::pam::PamError> for Error {
     }
 }
 
-impl From<greet_proto::codec::Error> for Error {
-    fn from(error: greet_proto::codec::Error) -> Self {
+impl From<greetd_ipc::codec::Error> for Error {
+    fn from(error: greetd_ipc::codec::Error) -> Self {
         match error {
-            greet_proto::codec::Error::Serialization(s) => Error::ProtocolError(s),
-            greet_proto::codec::Error::Io(s) => Error::Io(s),
-            greet_proto::codec::Error::Eof => Error::Io("EOF".to_string()),
+            greetd_ipc::codec::Error::Serialization(s) => Error::ProtocolError(s),
+            greetd_ipc::codec::Error::Io(s) => Error::Io(s),
+            greetd_ipc::codec::Error::Eof => Error::Io("EOF".to_string()),
         }
     }
 }

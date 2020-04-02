@@ -13,7 +13,7 @@ use crate::{
         worker::AuthMessageType as SessAuthMessageType,
     },
 };
-use greet_proto::AuthMessageType;
+use greetd_ipc::AuthMessageType;
 
 struct SessionChildSet {
     child: SessionChild,
