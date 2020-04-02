@@ -4,7 +4,9 @@
 //!
 //! The library exposes a [Request](enum.Request.html) and a
 //! [Response](enum.Response.html) enum, representing the valid protocol
-//! messages, without the length marker.length
+//! messages. Furthermore, codec implementations are available to serialize
+//! these to/from both sync and async readers/writers. The availability of
+//! these are controlled by feature flags.
 //!
 //! Additional types are part of the different request and response values.
 //!
@@ -20,7 +22,8 @@
 //! +----------+-------------------+
 //! ```
 //!
-//! Length is in native byte-order.
+//! Length is in native byte-order. The JSON payload is a variant of the
+//! Request or Response enums.
 //!
 //! # Request and response types
 //!
