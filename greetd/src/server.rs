@@ -133,13 +133,11 @@ pub async fn main(config: Config) -> Result<(), Error> {
 
             std::process::exit(1);
         }
-    } else {
-        if let Err(e) = ctx.greet().await {
-            eprintln!("unable to start greeter: {}", e);
-            reset_vt(vt).map_err(|e| format!("unable to reset VT: {}", e))?;
+    } else if let Err(e) = ctx.greet().await {
+        eprintln!("unable to start greeter: {}", e);
+        reset_vt(vt).map_err(|e| format!("unable to reset VT: {}", e))?;
 
-            std::process::exit(1);
-        }
+        std::process::exit(1);
     }
 
     let mut alarm = signal(SignalKind::alarm()).expect("unable to listen for SIGALRM");

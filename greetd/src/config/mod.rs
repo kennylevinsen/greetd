@@ -68,7 +68,7 @@ fn read_old_config(config: &ini::Ini) -> Result<ConfigFile, Error> {
     };
 
     Ok(ConfigFile {
-        terminal: ConfigTerminal { vt: vt },
+        terminal: ConfigTerminal { vt },
         default_session: ConfigSession {
             user: greeter_user.to_string(),
             command: greeter.to_string(),
@@ -172,9 +172,10 @@ pub fn read_config() -> Result<Config, Error> {
                 v
             }
             Err(_e) => {
-                return Err(Error::ConfigError(
-                    format!("unable to parse configuration file: {}", e).to_string(),
-                ))
+                return Err(Error::ConfigError(format!(
+                    "unable to parse configuration file: {}",
+                    e
+                )))
             }
         },
     };
