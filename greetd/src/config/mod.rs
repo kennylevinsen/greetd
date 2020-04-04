@@ -4,7 +4,7 @@ use getopts::Options;
 
 use super::error::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum VtSelection {
     Next,
     Current,
@@ -12,31 +12,31 @@ pub enum VtSelection {
     Specific(usize),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ConfigSession {
     pub command: String,
     pub user: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ConfigInternal {
     pub socket_path: String,
     pub session_worker: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ConfigTerminal {
     pub vt: VtSelection,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ConfigFile {
     pub terminal: ConfigTerminal,
     pub default_session: ConfigSession,
     pub initial_session: Option<ConfigSession>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Config {
     pub file: ConfigFile,
     pub internal: ConfigInternal,
@@ -48,8 +48,8 @@ fn print_usage(program: &str, opts: Options) {
     println!("For more details, see greetd(1).");
 }
 
-fn read_old_config(config: &ini::Ini) -> Result<ConfigFile, Error> {
-    let general = config.general_section();
+fn parse_old_config(config: &ini::Ini) -> Result<ConfigFile, Error> {
+    let general = config.section(None::<String>).ok_or("no general section")?;
     let greeter = general
         .get("greeter")
         .ok_or("unable to parse configuration file: no greeter specified")?;
@@ -77,7 +77,7 @@ fn read_old_config(config: &ini::Ini) -> Result<ConfigFile, Error> {
     })
 }
 
-fn read_new_config(config: &ini::Ini) -> Result<ConfigFile, Error> {
+fn parse_new_config(config: &ini::Ini) -> Result<ConfigFile, Error> {
     let default_session = match config.section(Some("default_session")) {
         Some(section) => Ok(ConfigSession {
             command: section
@@ -89,7 +89,7 @@ fn read_new_config(config: &ini::Ini) -> Result<ConfigFile, Error> {
         None => Err("no default_session specified"),
     }?;
 
-    let initial_session = match config.section(Some("initial_section")) {
+    let initial_session = match config.section(Some("initial_session")) {
         Some(section) => Some(ConfigSession {
             command: section
                 .get("command")
@@ -125,6 +125,23 @@ fn read_new_config(config: &ini::Ini) -> Result<ConfigFile, Error> {
     })
 }
 
+fn parse_config(config_str: &str) -> Result<ConfigFile, Error> {
+    let config_ini = ini::Ini::load_from_str(config_str)?;
+    match parse_new_config(&config_ini) {
+        Ok(v) => Ok(v),
+        Err(e) => match parse_old_config(&config_ini) {
+            Ok(v) => {
+                eprintln!("warning: Fallback to old config format, caused by : {}", e);
+                Ok(v)
+            }
+            Err(_e) => Err(Error::ConfigError(format!(
+                "unable to parse configuration file: {}",
+                e
+            ))),
+        },
+    }
+}
+
 pub fn read_config() -> Result<Config, Error> {
     let args: Vec<String> = env::args().collect();
     let program = args[0].clone();
@@ -157,28 +174,12 @@ pub fn read_config() -> Result<Config, Error> {
             .unwrap_or(0),
     };
 
-    let file_content = read_to_string(
+    let config_str = read_to_string(
         matches
             .opt_str("config")
             .unwrap_or_else(|| "/etc/greetd/config.toml".to_string()),
     )?;
-
-    let config_ini = ini::Ini::load_from_str(&file_content)?;
-    let file = match read_new_config(&config_ini) {
-        Ok(v) => v,
-        Err(e) => match read_old_config(&config_ini) {
-            Ok(v) => {
-                eprintln!("warning: Fallback to old config format, caused by : {}", e);
-                v
-            }
-            Err(_e) => {
-                return Err(Error::ConfigError(format!(
-                    "unable to parse configuration file: {}",
-                    e
-                )))
-            }
-        },
-    };
+    let file = parse_config(&config_str)?;
 
     if file.default_session.command.is_empty() {
         return Err(Error::ConfigError(
@@ -204,4 +205,223 @@ pub fn read_config() -> Result<Config, Error> {
     }
 
     Ok(Config { file, internal })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_config() {
+        let config = parse_config(
+            "
+vt = 1
+greeter = \"agreety\"
+greeter_user = \"greeter\"
+",
+        )
+        .expect("config didn't parse");
+        assert_eq!(
+            config,
+            ConfigFile {
+                terminal: ConfigTerminal {
+                    vt: VtSelection::Specific(1)
+                },
+                default_session: ConfigSession {
+                    command: "agreety".to_string(),
+                    user: "greeter".to_string(),
+                },
+                initial_session: None,
+            }
+        );
+
+        let config = parse_config(
+            "
+vt = \"next\"
+greeter = \"agreety\"
+",
+        )
+        .expect("config didn't parse");
+        assert_eq!(
+            config,
+            ConfigFile {
+                terminal: ConfigTerminal {
+                    vt: VtSelection::Next
+                },
+                default_session: ConfigSession {
+                    command: "agreety".to_string(),
+                    user: "greeter".to_string(),
+                },
+                initial_session: None,
+            }
+        );
+    }
+
+    #[test]
+    fn minimal_config() {
+        let config = parse_config(
+            "
+[terminal]
+vt = 1
+[default_session]
+command = \"agreety\"
+",
+        )
+        .expect("config didn't parse");
+        assert_eq!(
+            config,
+            ConfigFile {
+                terminal: ConfigTerminal {
+                    vt: VtSelection::Specific(1)
+                },
+                default_session: ConfigSession {
+                    command: "agreety".to_string(),
+                    user: "greeter".to_string(),
+                },
+                initial_session: None,
+            }
+        );
+    }
+
+    #[test]
+    fn initial_session() {
+        let config = parse_config(
+            "
+[terminal]\nvt = 1\n[default_session]\ncommand = \"agreety\"
+[initial_session]
+command = \"sway\"
+user = \"john\"
+",
+        )
+        .expect("config didn't parse");
+        assert_eq!(
+            config,
+            ConfigFile {
+                terminal: ConfigTerminal {
+                    vt: VtSelection::Specific(1)
+                },
+                default_session: ConfigSession {
+                    command: "agreety".to_string(),
+                    user: "greeter".to_string(),
+                },
+                initial_session: Some(ConfigSession {
+                    command: "sway".to_string(),
+                    user: "john".to_string(),
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn terminal() {
+        let config = parse_config(
+            "
+[default_session]\ncommand = \"agreety\"
+[terminal]
+vt = 1
+",
+        )
+        .expect("config didn't parse");
+        assert_eq!(
+            config,
+            ConfigFile {
+                terminal: ConfigTerminal {
+                    vt: VtSelection::Specific(1)
+                },
+                default_session: ConfigSession {
+                    command: "agreety".to_string(),
+                    user: "greeter".to_string(),
+                },
+                initial_session: None,
+            }
+        );
+        let config = parse_config(
+            "
+[default_session]\ncommand = \"agreety\"
+[terminal]
+vt = next
+",
+        )
+        .expect("config didn't parse");
+        assert_eq!(
+            config,
+            ConfigFile {
+                terminal: ConfigTerminal {
+                    vt: VtSelection::Next
+                },
+                default_session: ConfigSession {
+                    command: "agreety".to_string(),
+                    user: "greeter".to_string(),
+                },
+                initial_session: None,
+            }
+        );
+        let config = parse_config(
+            "
+[default_session]\ncommand = \"agreety\"
+[terminal]
+vt = current
+",
+        )
+        .expect("config didn't parse");
+        assert_eq!(
+            config,
+            ConfigFile {
+                terminal: ConfigTerminal {
+                    vt: VtSelection::Current
+                },
+                default_session: ConfigSession {
+                    command: "agreety".to_string(),
+                    user: "greeter".to_string(),
+                },
+                initial_session: None,
+            }
+        );
+    }
+
+    #[test]
+    fn invalid_initial_session() {
+        assert!(parse_config(
+            "
+[terminal]\nvt = 1\n[default_session]\ncommand = \"agreety\"
+[initial_session]
+"
+        )
+        .is_err());
+        assert!(parse_config(
+            "
+[terminal]\nvt = 1\n[default_session]\ncommand = \"agreety\"
+[initial_session]
+command = \"sway\"
+"
+        )
+        .is_err());
+        assert!(parse_config(
+            "
+[terminal]\nvt = 1\n[default_session]\ncommand = \"agreety\"
+[initial_session]
+user = \"user\"
+"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn invalid_default_session() {
+        assert!(parse_config(
+            "
+[terminal]\nvt = 1
+[default_session]
+"
+        )
+        .is_err());
+        assert!(parse_config(
+            "
+[terminal]\nvt = 1
+[default_session]
+user = \"john\"
+"
+        )
+        .is_err());
+    }
 }
