@@ -9,7 +9,7 @@ repository = "https://git.sr.ht/~kennylevinsen/greetd/"
 
 [dependencies]
 greetd_ipc = { path = "../greetd_ipc", features = ["sync-codec"]}
-rust-ini = "0.14"
+rust-ini = "0.15"
 rpassword = "4.0"
 getopts = "0.2"
-nix = "0.16"
+nix = "0.17"

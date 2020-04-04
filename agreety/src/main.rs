@@ -19,18 +19,13 @@ fn prompt_stderr(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
 }
 
 fn get_distro_name() -> String {
-    Ini::load_from_file("/etc/os-release")
-        .ok()
-        .and_then(|file| {
-            let section = file.general_section();
-            Some(
-                section
-                    .get("PRETTY_NAME")
-                    .unwrap_or(&"Linux".to_string())
-                    .to_string(),
-            )
-        })
-        .unwrap_or_else(|| "Linux".to_string())
+    let config = match Ini::load_from_file("/etc/os-release") {
+        Ok(c) => c,
+        Err(_) => return "Linux".to_string(),
+    };
+
+    let section = config.general_section();
+    section.get("PRETTY_NAME").unwrap_or("Linux").to_string()
 }
 
 fn get_issue() -> Result<String, Box<dyn std::error::Error>> {
