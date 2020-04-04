@@ -1,43 +1,42 @@
-use super::{defaults::*, vtselection::VtSelection};
-use serde::Deserialize;
+#[derive(Debug)]
+pub enum VtSelection {
+    Next,
+    Current,
+    None,
+    Specific(usize),
+}
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct ConfigDefaultSession {
     pub command: String,
-    #[serde(default = "default_greeter_user")]
     pub user: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct ConfigInitialSession {
     pub command: String,
     pub user: String,
 }
 
+#[derive(Debug)]
 pub struct ConfigInternal {
     pub socket_path: String,
     pub session_worker: usize,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct ConfigTerminal {
-    #[serde(default = "default_vt")]
     pub vt: VtSelection,
 }
 
-impl Default for ConfigTerminal {
-    fn default() -> ConfigTerminal {
-        ConfigTerminal { vt: default_vt() }
-    }
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct ConfigFile {
     pub terminal: ConfigTerminal,
     pub default_session: ConfigDefaultSession,
     pub initial_session: Option<ConfigInitialSession>,
 }
 
+#[derive(Debug)]
 pub struct Config {
     pub file: ConfigFile,
     pub internal: ConfigInternal,

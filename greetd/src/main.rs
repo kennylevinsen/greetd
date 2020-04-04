@@ -38,6 +38,9 @@ async fn main() {
             std::process::exit(1);
         }
     };
+    if cfg!(feature = "debug") {
+        eprintln!("config: {:?}", config);
+    }
     mlockall(MlockAllFlags::all()).expect("unable to lock pages");
     let res = task::LocalSet::new()
         .run_until(async move {

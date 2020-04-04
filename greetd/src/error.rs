@@ -78,3 +78,9 @@ impl From<std::ffi::NulError> for Error {
         Error::Error(error.to_string())
     }
 }
+
+impl From<ini::ini::ParseError> for Error {
+    fn from(error: ini::ini::ParseError) -> Self {
+        Error::Error(error.to_string())
+    }
+}
