@@ -73,22 +73,20 @@ fn login(node: &str, cmd: &mut Option<String>) -> Result<LoginResult, Box<dyn st
                 auth_message,
                 auth_message_type,
             } => {
-                let answer = match auth_message_type {
-                    AuthMessageType::Visible => prompt_stderr(&auth_message)?,
-                    AuthMessageType::Secret => prompt_password_stderr(&auth_message)?,
+                let response = match auth_message_type {
+                    AuthMessageType::Visible => Some(prompt_stderr(&auth_message)?),
+                    AuthMessageType::Secret => Some(prompt_password_stderr(&auth_message)?),
                     AuthMessageType::Info => {
                         eprintln!("info: {}", auth_message);
-                        "".to_string()
+                        None
                     }
                     AuthMessageType::Error => {
                         eprintln!("error: {}", auth_message);
-                        "".to_string()
+                        None
                     }
                 };
 
-                next_request = Request::PostAuthMessageResponse {
-                    response: Some(answer),
-                };
+                next_request = Request::PostAuthMessageResponse { response };
             }
             Response::Success => {
                 if starting {
