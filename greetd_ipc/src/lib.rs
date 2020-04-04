@@ -186,6 +186,23 @@ pub mod codec {
         }
     }
 
+    /// Synchronous reader/writer implementation, operating on an implementor of std::io::{Read, Write}.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use std::env;
+    /// use std::os::unix::net::UnixStream;
+    /// use greetd_ipc::{Request, Response};
+    /// use greetd_ipc::codec::SyncCodec;
+    ///
+    /// fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut stream = UnixStream::connect(env::var("GREETD_SOCK")?)?;
+    ///     Request::CreateSession { username: "john".to_string() }.write_to(&mut stream)?;
+    ///     let resp = Response::read_from(&mut stream)?;
+    ///     Ok(())
+    /// }
+    /// ```
     #[cfg(feature = "sync-codec")]
     mod sync_codec {
         use crate::{codec::Error, Request, Response};
@@ -252,6 +269,24 @@ pub mod codec {
     #[cfg(feature = "sync-codec")]
     pub use sync_codec::SyncCodec;
 
+    /// Asynchronous reader/writer implementation, operating on an implementor of tokio::io::{AsyncReadExt, AsyncWriteExt}.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use std::env;
+    /// use tokio::net::UnixStream;
+    /// use greetd_ipc::{Request, Response};
+    /// use greetd_ipc::codec::TokioCodec;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut stream = UnixStream::connect(env::var("GREETD_SOCK")?).await?;
+    ///     Request::CreateSession { username: "john".to_string() }.write_to(&mut stream).await?;
+    ///     let resp = Response::read_from(&mut stream).await?;
+    ///     Ok(())
+    /// }
+    /// ```
     #[cfg(feature = "tokio-codec")]
     mod tokio_codec {
         use crate::{codec::Error, Request, Response};
