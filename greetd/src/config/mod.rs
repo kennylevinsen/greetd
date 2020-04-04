@@ -1,12 +1,46 @@
-mod types;
-
 use std::{env, fs::read_to_string};
 
 use getopts::Options;
 
 use super::error::Error;
 
-pub use types::*;
+#[derive(Debug)]
+pub enum VtSelection {
+    Next,
+    Current,
+    None,
+    Specific(usize),
+}
+
+#[derive(Debug)]
+pub struct ConfigSession {
+    pub command: String,
+    pub user: String,
+}
+
+#[derive(Debug)]
+pub struct ConfigInternal {
+    pub socket_path: String,
+    pub session_worker: usize,
+}
+
+#[derive(Debug)]
+pub struct ConfigTerminal {
+    pub vt: VtSelection,
+}
+
+#[derive(Debug)]
+pub struct ConfigFile {
+    pub terminal: ConfigTerminal,
+    pub default_session: ConfigSession,
+    pub initial_session: Option<ConfigSession>,
+}
+
+#[derive(Debug)]
+pub struct Config {
+    pub file: ConfigFile,
+    pub internal: ConfigInternal,
+}
 
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} [options]", program);
@@ -35,7 +69,7 @@ fn read_old_config(config: &ini::Ini) -> Result<ConfigFile, Error> {
 
     Ok(ConfigFile {
         terminal: ConfigTerminal { vt: vt },
-        default_session: ConfigDefaultSession {
+        default_session: ConfigSession {
             user: greeter_user.to_string(),
             command: greeter.to_string(),
         },
@@ -45,7 +79,7 @@ fn read_old_config(config: &ini::Ini) -> Result<ConfigFile, Error> {
 
 fn read_new_config(config: &ini::Ini) -> Result<ConfigFile, Error> {
     let default_session = match config.section(Some("default_session")) {
-        Some(section) => Ok(ConfigDefaultSession {
+        Some(section) => Ok(ConfigSession {
             command: section
                 .get("command")
                 .ok_or("default_session contains no command")?
@@ -56,7 +90,7 @@ fn read_new_config(config: &ini::Ini) -> Result<ConfigFile, Error> {
     }?;
 
     let initial_session = match config.section(Some("initial_section")) {
-        Some(section) => Some(ConfigInitialSession {
+        Some(section) => Some(ConfigSession {
             command: section
                 .get("command")
                 .ok_or("initial_session contains no command")?
