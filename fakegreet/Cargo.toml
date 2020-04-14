@@ -1,0 +1,14 @@
+[package]
+name = "fakegreet"
+version = "0.5.0"
+authors = ["Kenny Levinsen"]
+edition = "2018"
+license = "GPL-3.0"
+homepage = "https://kl.wtf/projects/greetd"
+repository = "https://git.sr.ht/~kennylevinsen/greetd/"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+greetd_ipc = { path = "../greetd_ipc", features = ["tokio-codec"] }
+tokio = { version = "0.2", features = ["process"] }
+thiserror = "1.0"
