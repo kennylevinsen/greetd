@@ -154,28 +154,22 @@ pub async fn server() -> Result<(), Error> {
     let mut listener =
         UnixListener::bind(path).map_err(|e| format!("unable to open listener: {}", e))?;
 
-    let arg = env::args()
-        .skip(1)
-        .next()
-        .expect("need argument")
-        .to_string();
+    let arg = env::args().nth(1).expect("need argument");
     let _ = Command::new("sh").arg("-c").arg(arg).spawn()?;
 
     let ctx = Rc::new(Context::new());
 
     loop {
-        tokio::select! {
-            stream = listener.accept() => match stream {
-                Ok((stream, _)) => {
-                    let ctx = ctx.clone();
-                    task::spawn_local(async move {
-                        if let Err(e) = client_handler(&ctx, stream).await {
-                            eprintln!("client loop failed: {}", e);
-                        }
-                    });
-                },
-                Err(err) => return Err(format!("accept: {}", err).into()),
+        match listener.accept().await {
+            Ok((stream, _)) => {
+                let ctx = ctx.clone();
+                task::spawn_local(async move {
+                    if let Err(e) = client_handler(&ctx, stream).await {
+                        eprintln!("client loop failed: {}", e);
+                    }
+                });
             }
+            Err(err) => return Err(format!("accept: {}", err).into()),
         }
     }
 }
