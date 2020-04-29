@@ -103,7 +103,7 @@ impl<'a> PamSession<'a> {
     }
 
     pub fn get_user(&mut self) -> Result<String, PamError> {
-        let mut p: *const i8 = ptr::null_mut();
+        let mut p: *const u8 = ptr::null_mut();
         self.last_code = pam_sys::get_user(self.handle, &mut p, ptr::null());
         match self.last_code {
             PamReturnCode::SUCCESS => {
