@@ -1,8 +1,11 @@
-use std::{env, fs::read_to_string};
+use std::{collections::HashMap, env, fs::read_to_string};
 
+use enquote::unquote;
 use getopts::Options;
 
 use super::error::Error;
+
+mod inish;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum VtSelection {
@@ -48,16 +51,28 @@ fn print_usage(program: &str, opts: Options) {
     println!("For more details, see greetd(1).");
 }
 
-fn parse_old_config(config: &ini::Ini) -> Result<ConfigFile, Error> {
-    let general = config.section(None::<String>).ok_or("no general section")?;
-    let greeter = general
+fn maybe_unquote(s: &str) -> Result<String, Error> {
+    Ok(match s.chars().next() {
+        Some('"') | Some('\'') => unquote(s).map_err(|e| Error::ConfigError(format!("{}", e)))?,
+        _ => s.to_string(),
+    })
+}
+
+fn parse_old_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<ConfigFile, Error> {
+    let general = config.get("").ok_or("no general section")?;
+
+    let greeterstr = general
         .get("greeter")
         .ok_or("unable to parse configuration file: no greeter specified")?;
-    let greeter_user = general.get("greeter_user").unwrap_or("greeter");
-    let vt: VtSelection = match general
+    let greeter = maybe_unquote(greeterstr)?;
+
+    let greeter_userstr = general.get("greeter_user").unwrap_or(&"greeter");
+    let greeter_user = maybe_unquote(greeter_userstr)?;
+
+    let vtstr = general
         .get("vt")
-        .ok_or("unable to parse configuration file: no VT specified")?
-    {
+        .ok_or("unable to parse configuration file: no VT specified")?;
+    let vt: VtSelection = match maybe_unquote(vtstr)?.as_str() {
         "none" | "\"none\"" => VtSelection::None,
         "current" | "\"current\"" => VtSelection::Current,
         "next" | "\"next\"" => VtSelection::Next,
@@ -70,42 +85,56 @@ fn parse_old_config(config: &ini::Ini) -> Result<ConfigFile, Error> {
     Ok(ConfigFile {
         terminal: ConfigTerminal { vt },
         default_session: ConfigSession {
-            user: greeter_user.to_string(),
-            command: greeter.to_string(),
+            user: greeter_user,
+            command: greeter,
         },
         initial_session: None,
     })
 }
 
-fn parse_new_config(config: &ini::Ini) -> Result<ConfigFile, Error> {
-    let default_session = match config.section(Some("default_session")) {
-        Some(section) => Ok(ConfigSession {
-            command: section
+fn parse_new_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<ConfigFile, Error> {
+    let default_session = match config.get("default_session") {
+        Some(section) => {
+            let commandstr = section
                 .get("command")
-                .ok_or("default_session contains no command")?
-                .to_string(),
-            user: section.get("user").unwrap_or("greeter").to_string(),
-        }),
+                .ok_or("default_session contains no command")?;
+            let command = maybe_unquote(commandstr)
+                .map_err(|e| format!("unable to read default_session.command: {}", e))?;
+
+            let userstr = section.get("user").unwrap_or(&"greeter");
+            let user = maybe_unquote(userstr)
+                .map_err(|e| format!("unable to read default_session.user: {}", e))?;
+
+            Ok(ConfigSession { command, user })
+        }
         None => Err("no default_session specified"),
     }?;
 
-    let initial_session = match config.section(Some("initial_session")) {
-        Some(section) => Some(ConfigSession {
-            command: section
+    let initial_session = match config.get("initial_session") {
+        Some(section) => {
+            let commandstr = section
                 .get("command")
-                .ok_or("initial_session contains no command")?
-                .to_string(),
-            user: section
+                .ok_or("initial_session contains no command")?;
+            let command = maybe_unquote(commandstr)
+                .map_err(|e| format!("unable to read initial_session.command: {}", e))?;
+
+            let userstr = section
                 .get("user")
-                .ok_or("initial_session contains no user")?
-                .to_string(),
-        }),
+                .ok_or("initial_session contains no user")?;
+            let user = maybe_unquote(userstr)
+                .map_err(|e| format!("unable to read initial_session.user: {}", e))?;
+
+            Some(ConfigSession { command, user })
+        }
         None => None,
     };
 
-    let terminal = match config.section(Some("terminal")) {
+    let terminal = match config.get("terminal") {
         Some(section) => Ok(ConfigTerminal {
-            vt: match section.get("vt").ok_or("VT not specified")? {
+            vt: match maybe_unquote(section.get("vt").ok_or("VT not specified")?)
+                .map_err(|e| format!("unable to read terminal.vt: {}", e))?
+                .as_str()
+            {
                 "none" | "\"none\"" => VtSelection::None,
                 "current" | "\"current\"" => VtSelection::Current,
                 "next" | "\"next\"" => VtSelection::Next,
@@ -126,7 +155,7 @@ fn parse_new_config(config: &ini::Ini) -> Result<ConfigFile, Error> {
 }
 
 fn parse_config(config_str: &str) -> Result<ConfigFile, Error> {
-    let config_ini = ini::Ini::load_from_str(config_str)?;
+    let config_ini = inish::parse(config_str)?;
     match parse_new_config(&config_ini) {
         Ok(v) => Ok(v),
         Err(e) => match parse_old_config(&config_ini) {

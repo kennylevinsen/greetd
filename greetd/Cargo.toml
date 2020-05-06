@@ -22,4 +22,4 @@ tokio = { version = "0.2", features = ["net", "sync", "macros", "signal", "rt-ut
 getopts = "0.2"
 thiserror = "1.0"
 async-trait = "0.1"
-rust-ini = "0.15"
+enquote = "1.0.3"
