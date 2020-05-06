@@ -16,6 +16,7 @@ all-features = true
 codec = ["thiserror"]
 sync-codec = ["codec"]
 tokio-codec = ["tokio", "async-trait"]
+futures-codec = ["futures", "async-trait"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -23,3 +24,7 @@ serde_json = "1.0"
 tokio = { version = "0.2", features = ["io-util"], optional = true }
 async-trait = { version = "0.1", optional = true }
 thiserror = { version = "1.0", optional = true }
+futures = { version = "0.3.4", optional = true }
+
+[dev-dependencies]
+smol = "0.1.4"

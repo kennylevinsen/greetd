@@ -1,11 +1,5 @@
 use std::time::{Duration, Instant};
 
-use nix::{
-    sys::wait::{waitpid, WaitPidFlag, WaitStatus},
-    unistd::alarm,
-};
-use tokio::{sync::RwLock, time::delay_for};
-
 use crate::{
     error::Error,
     session::{
@@ -13,7 +7,13 @@ use crate::{
         worker::AuthMessageType as SessAuthMessageType,
     },
 };
+use futures::lock::Mutex;
 use greetd_ipc::AuthMessageType;
+use nix::{
+    sys::wait::{waitpid, WaitPidFlag, WaitStatus},
+    unistd::alarm,
+};
+use smol::Timer;
 
 struct SessionChildSet {
     child: SessionChild,
@@ -34,7 +34,7 @@ struct ContextInner {
 
 /// Context keeps track of running sessions and start new ones.
 pub struct Context {
-    inner: RwLock<ContextInner>,
+    inner: Mutex<ContextInner>,
     greeter_bin: String,
     greeter_user: String,
     vt: usize,
@@ -49,7 +49,7 @@ impl Context {
         pam_service: String,
     ) -> Context {
         Context {
-            inner: RwLock::new(ContextInner {
+            inner: Mutex::new(ContextInner {
                 current: None,
                 scheduled: None,
                 configuring: None,
@@ -100,14 +100,11 @@ impl Context {
 
     /// Directly start a greeter session, bypassing the normal scheduling.
     pub async fn greet(&self) -> Result<(), Error> {
-        {
-            let inner = self.inner.read().await;
-            if inner.current.is_some() {
-                return Err("session already active".into());
-            }
+        let mut inner = self.inner.lock().await;
+        if inner.current.is_some() {
+            return Err("session already active".into());
         }
 
-        let mut inner = self.inner.write().await;
         inner.current = Some(SessionChildSet {
             child: self.start_greeter().await?,
             time: Instant::now(),
@@ -118,14 +115,11 @@ impl Context {
 
     /// Directly start an initial session, bypassing the normal scheduling.
     pub async fn start_user_session(&self, user: &str, cmd: Vec<String>) -> Result<(), Error> {
-        {
-            let inner = self.inner.read().await;
-            if inner.current.is_some() {
-                return Err("session already active".into());
-            }
+        let mut inner = self.inner.lock().await;
+        if inner.current.is_some() {
+            return Err("session already active".into());
         }
 
-        let mut inner = self.inner.write().await;
         inner.current = Some(SessionChildSet {
             child: self
                 .start_unauthenticated_session("user", user, cmd)
@@ -139,7 +133,7 @@ impl Context {
     /// Create a new session for configuration.
     pub async fn create_session(&self, username: String) -> Result<(), Error> {
         {
-            let inner = self.inner.read().await;
+            let inner = self.inner.lock().await;
             if inner.current.is_none() {
                 return Err("session not active".into());
             }
@@ -161,7 +155,7 @@ impl Context {
             .await?;
 
         let mut session = Some(session_set);
-        let mut inner = self.inner.write().await;
+        let mut inner = self.inner.lock().await;
         std::mem::swap(&mut session, &mut inner.configuring);
         drop(inner);
 
@@ -175,7 +169,7 @@ impl Context {
 
     /// Cancel the session being configured.
     pub async fn cancel(&self) -> Result<(), Error> {
-        let mut inner = self.inner.write().await;
+        let mut inner = self.inner.lock().await;
         if let Some(mut s) = inner.configuring.take() {
             s.session.cancel().await?;
         }
@@ -184,7 +178,7 @@ impl Context {
 
     /// Retrieve a question from the session under configuration.
     pub async fn get_question(&self) -> Result<Option<(AuthMessageType, String)>, Error> {
-        let mut inner = self.inner.write().await;
+        let mut inner = self.inner.lock().await;
         match &mut inner.configuring {
             Some(s) => match s.session.get_state().await? {
                 SessionState::Ready => Ok(None),
@@ -204,7 +198,7 @@ impl Context {
 
     /// Answer a question to the session under configuration.
     pub async fn post_response(&self, answer: Option<String>) -> Result<(), Error> {
-        let mut inner = self.inner.write().await;
+        let mut inner = self.inner.lock().await;
         match &mut inner.configuring {
             Some(s) => s.session.post_response(answer).await,
             None => Err("no session under configuration".into()),
@@ -213,7 +207,7 @@ impl Context {
 
     /// Schedule the session under configuration with the provided arguments.
     pub async fn start(&self, cmd: Vec<String>) -> Result<(), Error> {
-        let mut session = self.inner.write().await.configuring.take();
+        let mut session = self.inner.lock().await.configuring.take();
 
         match &mut session {
             Some(s) => match s.session.get_state().await? {
@@ -221,7 +215,7 @@ impl Context {
                     // Send our arguments to the session.
                     s.session.send_args(cmd).await?;
 
-                    let mut inner = self.inner.write().await;
+                    let mut inner = self.inner.lock().await;
                     std::mem::swap(&mut session, &mut inner.scheduled);
                     drop(inner);
 
@@ -246,7 +240,7 @@ impl Context {
     /// Notify the Context of an alarm.
     pub async fn alarm(&self) -> Result<(), Error> {
         // Keep trying to terminate the greeter until it gives up.
-        let mut inner = self.inner.write().await;
+        let mut inner = self.inner.lock().await;
 
         if let Some(mut p) = inner.scheduled.take() {
             if let Some(g) = inner.current.take() {
@@ -267,7 +261,7 @@ impl Context {
                 Ok(s) => s,
                 Err(e) => return Err(format!("session start failed: {}", e).into()),
             };
-            let mut inner = self.inner.write().await;
+            let mut inner = self.inner.lock().await;
             inner.current = Some(SessionChildSet {
                 child: s,
                 time: Instant::now(),
@@ -288,7 +282,7 @@ impl Context {
 
                 // We got an exit, see if it's something we need to clean up.
                 Ok(WaitStatus::Exited(pid, ..)) | Ok(WaitStatus::Signaled(pid, ..)) => {
-                    let mut inner = self.inner.write().await;
+                    let mut inner = self.inner.lock().await;
                     let (was_greeter, sesion_length) = match &inner.current {
                         Some(s) if s.child.owns_pid(pid) => {
                             let res = (s.is_greeter, s.time.elapsed());
@@ -309,7 +303,7 @@ impl Context {
                                     return Err(format!("session start failed: {}", e).into());
                                 }
                             };
-                            let mut inner = self.inner.write().await;
+                            let mut inner = self.inner.lock().await;
                             inner.current = Some(SessionChildSet {
                                 child: s,
                                 time: Instant::now(),
@@ -321,7 +315,7 @@ impl Context {
                                 return Err("greeter exited without creating a session".into());
                             }
                             if sesion_length < Duration::from_secs(1) {
-                                delay_for(Duration::from_secs(1)).await;
+                                Timer::after(Duration::from_secs(1)).await;
                             }
                             inner.current = Some(SessionChildSet {
                                 child: self.start_greeter().await?,
@@ -350,7 +344,7 @@ impl Context {
     /// Notify the Context that we want to terminate. This should be called on
     /// SIGTERM.
     pub async fn terminate(&self) -> Result<(), Error> {
-        let mut inner = self.inner.write().await;
+        let mut inner = self.inner.lock().await;
         if let Some(mut sess) = inner.configuring.take() {
             let _ = sess.session.cancel().await;
         }

@@ -43,3 +43,8 @@ pub use self::sync::SyncCodec;
 mod tokio;
 #[cfg(feature = "tokio-codec")]
 pub use self::tokio::TokioCodec;
+
+#[cfg(feature = "futures-codec")]
+mod futures;
+#[cfg(feature = "futures-codec")]
+pub use self::futures::FuturesCodec;

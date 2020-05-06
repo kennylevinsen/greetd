@@ -1,20 +1,29 @@
-use std::{path::Path, rc::Rc};
-
-use nix::unistd::{chown, Gid, Uid};
-use tokio::{
-    net::{UnixListener, UnixStream},
-    signal::unix::{signal, SignalKind},
-    task,
+use std::{
+    convert::TryFrom,
+    os::unix::net::{UnixListener, UnixStream},
+    path::Path,
+    rc::Rc,
 };
+
+use futures::future::FutureExt;
+use nix::{
+    sys::{
+        signal::{self, SigSet},
+        signalfd::SfdFlags,
+    },
+    unistd::{chown, Gid, Uid},
+};
+use smol::{Async, Task};
 
 use crate::{
     config::{Config, VtSelection},
     context::Context,
     error::Error,
+    signals::SignalFd,
     terminal::{self, Terminal},
 };
 use greetd_ipc::{
-    codec::{Error as CodecError, TokioCodec},
+    codec::{Error as CodecError, FuturesCodec},
     ErrorType, Request, Response,
 };
 
@@ -49,7 +58,7 @@ async fn client_get_question(ctx: &Context) -> Response {
     }
 }
 
-async fn client_handler(ctx: &Context, mut s: UnixStream) -> Result<(), Error> {
+async fn client_handler(ctx: &Context, mut s: Async<UnixStream>) -> Result<(), Error> {
     loop {
         let req = match Request::read_from(&mut s).await {
             Ok(req) => req,
@@ -80,7 +89,7 @@ pub async fn main(config: Config) -> Result<(), Error> {
     std::env::set_var("GREETD_SOCK", &config.internal.socket_path);
 
     let _ = std::fs::remove_file(&config.internal.socket_path);
-    let mut listener = UnixListener::bind(&config.internal.socket_path)
+    let listener = Async::<UnixListener>::bind(&config.internal.socket_path)
         .map_err(|e| format!("unable to open listener: {}", e))?;
 
     let service = if Path::new("/etc/pam.d/greetd").exists() {
@@ -140,27 +149,38 @@ pub async fn main(config: Config) -> Result<(), Error> {
         std::process::exit(1);
     }
 
-    let mut alarm = signal(SignalKind::alarm()).expect("unable to listen for SIGALRM");
-    let mut child = signal(SignalKind::child()).expect("unable to listen for SIGCHLD");
-    let mut term = signal(SignalKind::terminate()).expect("unable to listen for SIGTERM");
+    let mut mask = SigSet::empty();
+    mask.add(signal::SIGALRM);
+    mask.add(signal::SIGCHLD);
+    mask.add(signal::SIGTERM);
+    mask.thread_block().unwrap();
+
+    let mut sfd = SignalFd::with_flags(&mask, SfdFlags::SFD_NONBLOCK)?;
 
     loop {
-        tokio::select! {
-            _ = child.recv() => ctx.check_children().await.map_err(|e| format!("check_children: {}", e))?,
-            _ = alarm.recv() => ctx.alarm().await.map_err(|e| format!("alarm: {}", e))?,
-            _ = term.recv() => {
-                ctx.terminate().await.map_err(|e| format!("terminate: {}", e))?;
-                break;
-            }
-            stream = listener.accept() => match stream {
+        futures::select! {
+            signal = sfd.read_signal().fuse() => match signal {
+                Ok(Some(siginfo)) => match signal::Signal::try_from(siginfo.ssi_signo as nix::libc::c_int) {
+                    Ok(signal::SIGCHLD) => ctx.check_children().await.map_err(|e| format!("check_children: {}", e))?,
+                    Ok(signal::SIGALRM) => ctx.alarm().await.map_err(|e| format!("alarm: {}", e))?,
+                    Ok(signal::SIGTERM) => {
+                        ctx.terminate().await.map_err(|e| format!("terminate: {}", e))?;
+                        break;
+                    },
+                    _ => ()
+                },
+                Ok(None) => (),
+                Err(err) => return Err(format!("read_signal: {}", err).into()),
+            },
+            stream = listener.accept().fuse() => match stream {
                 Ok((stream, _)) => {
                     let client_ctx = ctx.clone();
-                    task::spawn_local(async move {
+                    Task::local(async move {
                         if let Err(e) = client_handler(&client_ctx, stream).await {
                             client_ctx.cancel().await.expect("unable to cancel session");
                             eprintln!("client loop failed: {}", e);
                         }
-                    });
+                    }).detach();
                 },
                 Err(err) => return Err(format!("accept: {}", err).into()),
             }

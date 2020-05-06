@@ -5,30 +5,29 @@ use std::{
 
 use nix::{
     fcntl::{fcntl, FcntlArg, FdFlag},
-    sys::signal::Signal,
+    sys::signal::{SigSet, Signal},
     unistd::{execv, fork, ForkResult, Pid},
 };
 
-use async_trait::async_trait;
-
-use tokio::net::UnixDatagram as TokioUnixDatagram;
+use smol::Async;
 
 use super::worker::{AuthMessageType, ParentToSessionChild, SessionChildToParent};
 use crate::error::Error;
+use async_trait::async_trait;
 
 #[async_trait]
 trait AsyncRecv<T: Sized> {
-    async fn recv(sock: &mut TokioUnixDatagram) -> Result<T, Error>;
+    async fn recv(sock: &mut Async<UnixDatagram>) -> Result<T, Error>;
 }
 
 #[async_trait]
 trait AsyncSend {
-    async fn send(&self, sock: &mut TokioUnixDatagram) -> Result<(), Error>;
+    async fn send(&self, sock: &mut Async<UnixDatagram>) -> Result<(), Error>;
 }
 
 #[async_trait]
 impl AsyncSend for ParentToSessionChild {
-    async fn send(&self, sock: &mut TokioUnixDatagram) -> Result<(), Error> {
+    async fn send(&self, sock: &mut Async<UnixDatagram>) -> Result<(), Error> {
         let out =
             serde_json::to_vec(self).map_err(|e| format!("unable to serialize message: {}", e))?;
         sock.send(&out)
@@ -40,7 +39,7 @@ impl AsyncSend for ParentToSessionChild {
 
 #[async_trait]
 impl AsyncRecv<SessionChildToParent> for SessionChildToParent {
-    async fn recv(sock: &mut TokioUnixDatagram) -> Result<SessionChildToParent, Error> {
+    async fn recv(sock: &mut Async<UnixDatagram>) -> Result<SessionChildToParent, Error> {
         let mut data = [0; 10240];
         let len = sock
             .recv(&mut data[..])
@@ -85,7 +84,7 @@ pub enum SessionState {
 /// A device to initiate a logged in PAM session.
 pub struct Session {
     task: Pid,
-    sock: TokioUnixDatagram,
+    sock: Async<UnixDatagram>,
     last_msg: Option<SessionChildToParent>,
 }
 
@@ -108,6 +107,9 @@ impl Session {
         let child = match fork().map_err(|e| format!("unable to fork: {}", e))? {
             ForkResult::Parent { child, .. } => child,
             ForkResult::Child => {
+                SigSet::empty()
+                    .thread_set_mask()
+                    .expect("unable to clear signal mask");
                 execv(
                     &bin,
                     &[
@@ -124,7 +126,7 @@ impl Session {
 
         Ok(Session {
             task: child,
-            sock: TokioUnixDatagram::from_std(parentfd)?,
+            sock: Async::<UnixDatagram>::new(parentfd)?,
             last_msg: None,
         })
     }
@@ -236,7 +238,7 @@ impl Session {
             };
         };
 
-        self.sock.shutdown(std::net::Shutdown::Both)?;
+        self.sock.get_mut().shutdown(std::net::Shutdown::Both)?;
 
         Ok(SessionChild {
             task: self.task,

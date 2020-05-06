@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 mod config;
 mod context;
 mod error;
@@ -5,6 +7,7 @@ mod pam;
 mod scrambler;
 mod server;
 mod session;
+mod signals;
 mod terminal;
 
 use std::os::unix::{
@@ -16,7 +19,6 @@ use nix::{
     fcntl::{fcntl, FcntlArg, FdFlag},
     sys::mman::{mlockall, MlockAllFlags},
 };
-use tokio::task;
 
 use crate::{error::Error, session::worker};
 
@@ -29,8 +31,7 @@ async fn session_worker_main(config: config::Config) -> Result<(), Error> {
     worker::main(&sock)
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let config = match config::read_config() {
         Ok(config) => config,
         Err(e) => {
@@ -42,15 +43,13 @@ async fn main() {
         eprintln!("config: {:?}", config);
     }
     mlockall(MlockAllFlags::all()).expect("unable to lock pages");
-    let res = task::LocalSet::new()
-        .run_until(async move {
-            if config.internal.session_worker > 0 {
-                session_worker_main(config).await
-            } else {
-                server::main(config).await
-            }
-        })
-        .await;
+    let res = smol::run(async {
+        if config.internal.session_worker > 0 {
+            session_worker_main(config).await
+        } else {
+            server::main(config).await
+        }
+    });
     if let Err(e) = res {
         eprintln!("error: {}", e);
     }

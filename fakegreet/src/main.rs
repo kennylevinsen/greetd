@@ -1,19 +1,20 @@
 mod error;
 
-use std::{cell::RefCell, env, rc::Rc, time::Duration};
-
-use tokio::{
-    net::{UnixListener, UnixStream},
+use std::{
+    cell::RefCell,
+    env,
+    os::unix::net::{UnixListener, UnixStream},
     process::Command,
-    task,
-    time::delay_for,
+    rc::Rc,
+    time::Duration,
 };
 
 use crate::error::Error;
 use greetd_ipc::{
-    codec::{Error as CodecError, TokioCodec},
+    codec::{Error as CodecError, FuturesCodec},
     AuthMessageType, ErrorType, Request, Response,
 };
+use smol::{Async, Task, Timer};
 
 fn wrap_result<T>(res: Result<T, Error>) -> Response {
     match res {
@@ -82,7 +83,7 @@ impl Context {
                 || s.password != Some("password".to_string())
                 || response != Some("9".to_string())
             {
-                delay_for(Duration::from_millis(2000)).await;
+                Timer::after(Duration::from_secs(2)).await;
                 return Err(Error::AuthError("nope".to_string()));
             }
             s.ok = true;
@@ -94,7 +95,7 @@ impl Context {
         if !self.inner.borrow().ok {
             return Err(Error::Error("not yet dammit".to_string()));
         }
-        delay_for(Duration::from_millis(5000)).await;
+        Timer::after(Duration::from_secs(5)).await;
         Ok(())
     }
 
@@ -117,7 +118,7 @@ async fn client_get_question(ctx: &Context) -> Response {
     }
 }
 
-async fn client_handler(ctx: &Context, mut s: UnixStream) -> Result<(), Error> {
+async fn client_handler(ctx: &Context, mut s: Async<UnixStream>) -> Result<(), Error> {
     loop {
         let req = match Request::read_from(&mut s).await {
             Ok(req) => req,
@@ -151,8 +152,9 @@ pub async fn server() -> Result<(), Error> {
     std::env::set_var("GREETD_SOCK", path);
 
     let _ = std::fs::remove_file(path);
-    let mut listener =
-        UnixListener::bind(path).map_err(|e| format!("unable to open listener: {}", e))?;
+    let listener = Async::new(
+        UnixListener::bind(path).map_err(|e| format!("unable to open listener: {}", e))?,
+    )?;
 
     let arg = env::args().nth(1).expect("need argument");
     let _ = Command::new("sh").arg("-c").arg(arg).spawn()?;
@@ -163,22 +165,22 @@ pub async fn server() -> Result<(), Error> {
         match listener.accept().await {
             Ok((stream, _)) => {
                 let ctx = ctx.clone();
-                task::spawn_local(async move {
+                Task::local(async move {
                     if let Err(e) = client_handler(&ctx, stream).await {
                         eprintln!("client loop failed: {}", e);
                     }
-                });
+                })
+                .detach();
             }
             Err(err) => return Err(format!("accept: {}", err).into()),
         }
     }
 }
 
-#[tokio::main]
-async fn main() {
-    let res = task::LocalSet::new()
-        .run_until(async move { server().await })
-        .await;
+fn main() {
+    eprintln!("WARNING: fakegreet logs all traffic to console");
+    eprintln!("         Do *not* input any real credentials into spawned greeters");
+    let res = smol::run(server());
     if let Err(e) = res {
         eprintln!("error: {}", e);
     }
