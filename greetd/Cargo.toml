@@ -19,7 +19,7 @@ serde_json = "1.0"
 greetd_ipc = { path = "../greetd_ipc", features = ["futures-codec"] }
 inish = { path = "../inish" }
 libc = "0.2"
-smol = "0.1.4"
+smol = "0.1.5"
 futures = { version = "0.3.4", default-features = false, features = ["std"] }
 getopts = "0.2"
 thiserror = "1.0"

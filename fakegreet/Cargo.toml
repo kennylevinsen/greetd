@@ -11,4 +11,4 @@ repository = "https://git.sr.ht/~kennylevinsen/greetd/"
 serde = { version = "1.0", features = ["derive"] }
 greetd_ipc = { path = "../greetd_ipc", features = ["futures-codec"] }
 thiserror = "1.0"
-smol = "0.1.4"
+smol = "0.1.5"
