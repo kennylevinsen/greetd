@@ -4,12 +4,19 @@ use std::{
     os::unix::net::UnixStream,
 };
 
+use enquote::unquote;
 use getopts::Options;
-use ini::Ini;
 use nix::sys::utsname::uname;
 use rpassword::prompt_password_stderr;
 
 use greetd_ipc::{codec::SyncCodec, AuthMessageType, ErrorType, Request, Response};
+
+fn maybe_unquote(s: &str) -> Result<String, Box<dyn std::error::Error>> {
+    Ok(match s.chars().next() {
+        Some('"') | Some('\'') => unquote(s)?,
+        _ => s.to_string(),
+    })
+}
 
 fn prompt_stderr(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     let stdin = io::stdin();
@@ -18,14 +25,13 @@ fn prompt_stderr(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     Ok(stdin_iter.next().unwrap()?)
 }
 
-fn get_distro_name() -> String {
-    let config = match Ini::load_from_file("/etc/os-release") {
-        Ok(c) => c,
-        Err(_) => return "Linux".to_string(),
-    };
-
-    let section = config.general_section();
-    section.get("PRETTY_NAME").unwrap_or("Linux").to_string()
+fn get_distro_name() -> Result<String, Box<dyn std::error::Error>> {
+    let os_release = fs::read_to_string("/etc/os-release")?;
+    let parsed = inish::parse(&os_release)?;
+    let general = parsed.get("").ok_or("no general section")?;
+    Ok(maybe_unquote(
+        general.get("PRETTY_NAME").ok_or("no pretty name")?,
+    )?)
 }
 
 fn get_issue() -> Result<String, Box<dyn std::error::Error>> {
@@ -35,7 +41,10 @@ fn get_issue() -> Result<String, Box<dyn std::error::Error>> {
         .expect("unable to parse VTNR");
     let uts = uname();
     Ok(fs::read_to_string("/etc/issue")?
-        .replace("\\S", &get_distro_name())
+        .replace(
+            "\\S",
+            &get_distro_name().unwrap_or_else(|_| "Linux".to_string()),
+        )
         .replace("\\l", &format!("tty{}", vtnr))
         .replace("\\s", &uts.sysname())
         .replace("\\r", &uts.release())

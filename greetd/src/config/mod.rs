@@ -5,8 +5,6 @@ use getopts::Options;
 
 use super::error::Error;
 
-mod inish;
-
 #[derive(Debug, Eq, PartialEq)]
 pub enum VtSelection {
     Next,
