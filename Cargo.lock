@@ -2,11 +2,11 @@
 # It is not intended for manual editing.
 [[package]]
 name = "agreety"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "enquote 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "getopts 0.2.21 (registry+https://github.com/rust-lang/crates.io-index)",
- "greetd_ipc 0.5.1",
+ "greetd_ipc 0.6.0",
  "inish 0.1.0",
  "nix 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rpassword 4.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -54,9 +54,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "fakegreet"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
- "greetd_ipc 0.5.1",
+ "greetd_ipc 0.6.0",
  "serde 1.0.110 (registry+https://github.com/rust-lang/crates.io-index)",
  "thiserror 1.0.17 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -91,12 +91,12 @@ dependencies = [
 
 [[package]]
 name = "greetd"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "async-trait 0.1.31 (registry+https://github.com/rust-lang/crates.io-index)",
  "enquote 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "getopts 0.2.21 (registry+https://github.com/rust-lang/crates.io-index)",
- "greetd_ipc 0.5.1",
+ "greetd_ipc 0.6.0",
  "inish 0.1.0",
  "libc 0.2.70 (registry+https://github.com/rust-lang/crates.io-index)",
  "nix 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -110,7 +110,7 @@ dependencies = [
 
 [[package]]
 name = "greetd_ipc"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "async-trait 0.1.31 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.110 (registry+https://github.com/rust-lang/crates.io-index)",
