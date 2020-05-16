@@ -15,5 +15,5 @@ tasks:
       cargo fmt -- --check
   - test: |
       cd greetd
-      cargo check --all-targets --all-features
+      cargo check --locked --all-targets --all-features
       cargo test --all-targets --all-features
