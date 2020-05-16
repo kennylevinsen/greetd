@@ -201,11 +201,11 @@ pub fn read_config() -> Result<Config, Error> {
             .unwrap_or(0),
     };
 
-    let config_str = read_to_string(
-        matches
-            .opt_str("config")
-            .unwrap_or_else(|| "/etc/greetd/config.toml".to_string()),
-    )?;
+    let config_str = match matches.opt_str("config") {
+        Some(v) => read_to_string(v),
+        None => read_to_string("/etc/greetd/greetd.conf")
+            .or_else(|_| read_to_string("/etc/greetd/config.toml")),
+    }?;
     let file = parse_config(&config_str)?;
 
     if file.default_session.command.is_empty() {
