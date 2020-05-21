@@ -1,13 +1,12 @@
 mod ioctl;
 
-use std::{
-    error::Error,
-    fs::{File, OpenOptions},
-    io::Write,
-    os::unix::io::{AsRawFd, RawFd},
+use crate::error::Error;
+use nix::{
+    fcntl::{open, OFlag},
+    sys::stat::Mode,
+    unistd::{close, dup2, write},
 };
-
-use nix::unistd::dup2;
+use std::os::unix::io::RawFd;
 
 #[allow(dead_code)]
 pub enum KdMode {
@@ -25,20 +24,25 @@ impl KdMode {
 }
 
 pub struct Terminal {
-    // Note: This will close our fd when we're dropped.
-    file: File,
+    fd: RawFd,
+}
+
+impl Drop for Terminal {
+    fn drop(&mut self) {
+        close(self.fd).unwrap();
+    }
 }
 
 impl Terminal {
     /// Open the terminal file for the specified terminal number.
-    pub fn open(terminal: usize) -> Result<Terminal, Box<dyn Error>> {
-        let res = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(format!("/dev/tty{}", terminal));
-
+    pub fn open(terminal: usize) -> Result<Terminal, Error> {
+        let res = open(
+            format!("/dev/tty{}", terminal).as_str(),
+            OFlag::O_RDWR | OFlag::O_NOCTTY,
+            Mode::from_bits_truncate(0o666),
+        );
         match res {
-            Ok(file) => Ok(Terminal { file }),
+            Ok(fd) => Ok(Terminal { fd }),
             Err(e) => Err(format!("terminal: unable to open: {}", e).into()),
         }
     }
@@ -46,9 +50,9 @@ impl Terminal {
     /// Set the kernel display to either graphics or text mode. Graphivs mode
     /// disables the kernel console on this VT, and also disables blanking
     /// between VT switches if both source and target VT is in graphics mode.
-    pub fn kd_setmode(&self, mode: KdMode) -> Result<(), Box<dyn Error>> {
+    pub fn kd_setmode(&self, mode: KdMode) -> Result<(), Error> {
         let mode = mode.to_const();
-        let ret = unsafe { ioctl::kd_setmode(self.file.as_raw_fd(), mode) };
+        let ret = unsafe { ioctl::kd_setmode(self.fd, mode) };
 
         if let Err(v) = ret {
             Err(format!("terminal: unable to set kernel display mode: {}", v).into())
@@ -58,18 +62,18 @@ impl Terminal {
     }
 
     /// Switches to the specified VT and waits for completion of switch.
-    fn vt_activate(&self, target_vt: usize) -> Result<(), Box<dyn Error>> {
-        if let Err(v) = unsafe { ioctl::vt_activate(self.file.as_raw_fd(), target_vt as i32) } {
+    fn vt_activate(&self, target_vt: usize) -> Result<(), Error> {
+        if let Err(v) = unsafe { ioctl::vt_activate(self.fd, target_vt as i32) } {
             return Err(format!("terminal: unable to activate: {}", v).into());
         }
-        if let Err(v) = unsafe { ioctl::vt_waitactive(self.file.as_raw_fd(), target_vt as i32) } {
+        if let Err(v) = unsafe { ioctl::vt_waitactive(self.fd, target_vt as i32) } {
             return Err(format!("terminal: unable to wait for activation: {}", v).into());
         }
         Ok(())
     }
 
     /// Set the VT mode to VT_AUTO with everything cleared.
-    fn vt_mode_clean(&self) -> Result<(), Box<dyn Error>> {
+    fn vt_mode_clean(&self) -> Result<(), Error> {
         let mode = ioctl::vt_mode {
             mode: ioctl::VT_AUTO,
             waitv: 0,
@@ -77,7 +81,7 @@ impl Terminal {
             acqsig: 0,
             frsig: 0,
         };
-        let res = unsafe { ioctl::vt_setmode(self.file.as_raw_fd(), &mode) };
+        let res = unsafe { ioctl::vt_setmode(self.fd, &mode) };
 
         if let Err(v) = res {
             Err(format!("terminal: unable to set vt mode: {}", v).into())
@@ -91,7 +95,7 @@ impl Terminal {
     /// to the VT under the kernel console lock. On other platforms,
     /// VT_SETMODE followed by VT_ACTIVATE is used. For all platforms,
     /// VT_WAITACTIVE is used to wait for shell activation.
-    pub fn vt_setactivate(&self, target_vt: usize) -> Result<(), Box<dyn Error>> {
+    pub fn vt_setactivate(&self, target_vt: usize) -> Result<(), Error> {
         if cfg!(target_os = "linux") {
             let arg = ioctl::vt_setactivate {
                 console: target_vt as u64,
@@ -103,11 +107,10 @@ impl Terminal {
                     frsig: 0,
                 },
             };
-            if let Err(v) = unsafe { ioctl::vt_setactivate(self.file.as_raw_fd(), &arg) } {
+            if let Err(v) = unsafe { ioctl::vt_setactivate(self.fd, &arg) } {
                 return Err(format!("terminal: unable to setactivate: {}", v).into());
             }
-            if let Err(v) = unsafe { ioctl::vt_waitactive(self.file.as_raw_fd(), target_vt as i32) }
-            {
+            if let Err(v) = unsafe { ioctl::vt_waitactive(self.fd, target_vt as i32) } {
                 return Err(format!("terminal: unable to wait for activation: {}", v).into());
             }
         } else {
@@ -118,15 +121,13 @@ impl Terminal {
     }
 
     /// Retrieves the current VT number.
-    pub fn vt_get_current(&self) -> Result<usize, Box<dyn Error>> {
+    pub fn vt_get_current(&self) -> Result<usize, Error> {
         let mut state = ioctl::vt_state {
             v_active: 0,
             v_signal: 0,
             v_state: 0,
         };
-        let res = unsafe {
-            ioctl::vt_getstate(self.file.as_raw_fd(), &mut state as *mut ioctl::vt_state)
-        };
+        let res = unsafe { ioctl::vt_getstate(self.fd, &mut state as *mut ioctl::vt_state) };
 
         if let Err(v) = res {
             Err(format!("terminal: unable to get current vt: {}", v).into())
@@ -140,9 +141,9 @@ impl Terminal {
     /// Find the next unallocated VT, allocate it and return the number. Note
     /// that allocation does not mean exclusivity, and another process may take
     /// and use the VT before you get to it.
-    pub fn vt_get_next(&self) -> Result<usize, Box<dyn Error>> {
+    pub fn vt_get_next(&self) -> Result<usize, Error> {
         let mut next_vt: i64 = 0;
-        let res = unsafe { ioctl::vt_openqry(self.file.as_raw_fd(), &mut next_vt as *mut i64) };
+        let res = unsafe { ioctl::vt_openqry(self.fd, &mut next_vt as *mut i64) };
 
         if let Err(v) = res {
             Err(format!("terminal: unable to get next vt: {}", v).into())
@@ -155,10 +156,10 @@ impl Terminal {
 
     /// Hook up stdin, stdout and stderr of the current process ot this
     /// terminal.
-    pub fn term_connect_pipes(&self) -> Result<(), Box<dyn Error>> {
-        let res = dup2(self.file.as_raw_fd(), 0 as RawFd)
-            .and_then(|_| dup2(self.file.as_raw_fd(), 1 as RawFd))
-            .and_then(|_| dup2(self.file.as_raw_fd(), 2 as RawFd));
+    pub fn term_connect_pipes(&self) -> Result<(), Error> {
+        let res = dup2(self.fd, 0)
+            .and_then(|_| dup2(self.fd, 1))
+            .and_then(|_| dup2(self.fd, 2));
 
         if let Err(v) = res {
             Err(format!("terminal: unable to connect pipes: {}", v).into())
@@ -169,8 +170,8 @@ impl Terminal {
 
     /// Clear this terminal by sending the appropciate escape codes to it. Only
     /// affects text mode.
-    pub fn term_clear(&mut self) -> Result<(), Box<dyn Error>> {
-        let res = self.file.write_all(b"\x1B[H\x1B[2J");
+    pub fn term_clear(&self) -> Result<(), Error> {
+        let res = write(self.fd, b"\x1B[H\x1B[2J");
         if let Err(v) = res {
             Err(format!("terminal: unable to clear: {}", v).into())
         } else {
