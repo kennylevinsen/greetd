@@ -85,6 +85,9 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     let conv = Box::pin(SessionConv::new(sock));
     let mut pam = PamSession::start(&service, &user, conv)?;
 
+    // Tell PAM what TTY we're targetting, which is used by logind.
+    pam.set_item(PamItemType::TTY, &format!("tty{}", vt))?;
+
     if authenticate {
         pam.authenticate(PamFlag::NONE)?;
     }
@@ -119,37 +122,31 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     // Make this process a session leader.
     setsid().map_err(|e| format!("unable to become session leader: {}", e))?;
 
-    if vt != 0 {
-        // Opening our target terminal. This will automatically make it our
-        // controlling terminal. An attempt was made to use TIOCSCTTY to do
-        // this explicitly, but it neither worked nor was worth the additional
-        // code.
-        let mut target_term = terminal::Terminal::open(vt)?;
+    // Opening our target terminal. This will automatically make it our
+    // controlling terminal. An attempt was made to use TIOCSCTTY to do this
+    // explicitly, but it neither worked nor was worth the additional code.
+    let target_term = terminal::Terminal::open(vt)?;
 
-        // Clear TTY so that it will be empty when we switch to it.
-        target_term.term_clear()?;
+    // Set the target VT mode to text for compatibility. Other login managers
+    // set this to graphics, but that disallows start of textual applications,
+    // which greetd aims to support.
+    target_term.kd_setmode(terminal::KdMode::Text)?;
 
-        // Set the target VT mode to text for compatibility. Other login
-        // managers set this to graphics, but that disallows start of textual
-        // applications, which greetd aims to support.
-        target_term.kd_setmode(terminal::KdMode::Text)?;
+    // Clear TTY so that it will be empty when we switch to it.
+    target_term.term_clear()?;
 
-        // A bit more work if a VT switch is required.
-        if vt != target_term.vt_get_current()? {
-            // Perform a switch to the target VT, simultaneously resetting it to
-            // VT_AUTO.
-            target_term.vt_setactivate(vt)?;
-        }
-
-        // Hook up std(in|out|err). This allows us to run console applications.
-        // Also, hooking up stdin is required, as applications otherwise fail to
-        // start, both for graphical and console-based applications. I do not
-        // know why this is the case.
-        target_term.term_connect_pipes()?;
-
-        // We no longer need these, so close them to avoid inheritance.
-        drop(target_term);
+    // A bit more work if a VT switch is required.
+    if vt != 0 && vt != target_term.vt_get_current()? {
+        // Perform a switch to the target VT, simultaneously resetting it to
+        // VT_AUTO.
+        target_term.vt_setactivate(vt)?;
     }
+
+    // Connect std(in|out|err), and make this our controlling TTY.
+    target_term.term_connect_pipes()?;
+
+    // We no longer need these, so close them to avoid inheritance.
+    drop(target_term);
 
     // Prepare some values from the user struct we gathered earlier.
     let username = user.name().to_str().unwrap_or("");
@@ -192,9 +189,6 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     for e in prepared_env.iter() {
         pam.putenv(e)?;
     }
-
-    // Tell PAM what TTY we're targetting, which is used by logind.
-    pam.set_item(PamItemType::TTY, &format!("/dev/tty{}", vt))?;
 
     // Session time!
     pam.open_session(PamFlag::NONE)?;
