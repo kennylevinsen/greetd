@@ -10,6 +10,7 @@ pub const VT_ACTIVATE: u16 = 0x5606;
 pub const VT_WAITACTIVE: u16 = 0x5607;
 pub const VT_SETACTIVATE: u16 = 0x560F;
 pub const VT_AUTO: u8 = 0;
+pub const TIOCSCTTY: u16 = 0x540E;
 
 ioctl_write_int_bad!(kd_setmode, KDSETMODE);
 ioctl_write_int_bad!(vt_activate, VT_ACTIVATE);
@@ -18,6 +19,7 @@ ioctl_write_ptr_bad!(vt_setmode, VT_SETMODE, vt_mode);
 ioctl_write_ptr_bad!(vt_setactivate, VT_SETACTIVATE, vt_setactivate);
 ioctl_read_bad!(vt_openqry, VT_OPENQRY, i64);
 ioctl_read_bad!(vt_getstate, VT_GETSTATE, vt_state);
+ioctl_write_int_bad!(term_tiocsctty, TIOCSCTTY);
 
 #[allow(dead_code)]
 #[repr(C)]

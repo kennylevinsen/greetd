@@ -144,6 +144,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
 
     // Connect std(in|out|err), and make this our controlling TTY.
     target_term.term_connect_pipes()?;
+    target_term.term_take_ctty()?;
 
     // We no longer need these, so close them to avoid inheritance.
     drop(target_term);

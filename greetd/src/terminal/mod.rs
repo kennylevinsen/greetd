@@ -178,4 +178,14 @@ impl Terminal {
             Ok(())
         }
     }
+
+    // Forcibly take control of the terminal referred to by this fd.
+    pub fn term_take_ctty(&self) -> Result<(), Error> {
+        let res = unsafe { ioctl::term_tiocsctty(self.fd, 1) };
+
+        match res {
+            Err(e) => Err(format!("terminal: unable to take controlling terminal: {}", e).into()),
+            Ok(_) => Ok(()),
+        }
+    }
 }
