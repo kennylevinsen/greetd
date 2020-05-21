@@ -222,8 +222,8 @@ impl Session {
                 SessionChildToParent::FinalChildPid(raw_pid) => {
                     break Pid::from_raw(raw_pid as i32)
                 }
-                SessionChildToParent::PamMessage { style, msg } => {
-                    eprintln!("pam_conv after start: {:?}, {}", style, msg);
+                SessionChildToParent::PamMessage { .. } => {
+                    // pam_conv after start, ignore
                     ParentToSessionChild::PamResponse { resp: None }
                         .send(&mut self.sock)
                         .await?;
