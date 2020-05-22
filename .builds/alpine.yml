@@ -1,0 +1,11 @@
+image: alpine/edge
+packages:
+  - cargo
+  - linux-pam-dev
+sources:
+  - https://git.sr.ht/~kennylevinsen/greetd
+tasks:
+  - test: |
+      cd greetd
+      cargo check --locked --all-targets --all-features
+      cargo test --locked --all-targets --all-features

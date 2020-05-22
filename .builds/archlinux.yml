@@ -16,4 +16,4 @@ tasks:
   - test: |
       cd greetd
       cargo check --locked --all-targets --all-features
-      cargo test --all-targets --all-features
+      cargo test --locked --all-targets --all-features
