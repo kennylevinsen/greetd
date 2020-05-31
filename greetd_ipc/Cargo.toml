@@ -15,7 +15,7 @@ all-features = true
 [features]
 codec = ["thiserror"]
 sync-codec = ["codec"]
-tokio-codec = ["tokio", "async-trait"]
+tokio-codec = ["codec", "tokio", "async-trait"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
