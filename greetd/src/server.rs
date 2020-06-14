@@ -1,6 +1,6 @@
 use std::{path::Path, rc::Rc};
 
-use nix::unistd::{chown, Gid, Uid};
+use nix::unistd::{chown, getpid, Gid, Uid};
 use tokio::{
     net::{UnixListener, UnixStream},
     signal::unix::{signal, SignalKind},
@@ -76,13 +76,34 @@ async fn client_handler(ctx: &Context, mut s: UnixStream) -> Result<(), Error> {
     }
 }
 
+struct Listener(UnixListener);
+
+impl Listener {
+    fn create(uid: Uid, gid: Gid) -> Result<Listener, Error> {
+        let path = format!("/run/greetd-{}.sock", getpid().as_raw());
+        let _ = std::fs::remove_file(&path);
+        let listener =
+            UnixListener::bind(&path).map_err(|e| format!("unable to open listener: {}", e))?;
+        chown(path.as_str(), Some(uid), Some(gid))
+            .map_err(|e| format!("unable to chown greetd socket at {}: {}", path, e))?;
+        std::env::set_var("GREETD_SOCK", path);
+        Ok(Listener(listener))
+    }
+}
+
+impl Drop for Listener {
+    fn drop(&mut self) {
+        let addr = match self.0.local_addr() {
+            Ok(addr) => addr,
+            Err(_) => return,
+        };
+        if let Some(path) = addr.as_pathname() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
 pub async fn main(config: Config) -> Result<(), Error> {
-    std::env::set_var("GREETD_SOCK", &config.internal.socket_path);
-
-    let _ = std::fs::remove_file(&config.internal.socket_path);
-    let mut listener = UnixListener::bind(&config.internal.socket_path)
-        .map_err(|e| format!("unable to open listener: {}", e))?;
-
     let service = if Path::new("/etc/pam.d/greetd").exists() {
         "greetd"
     } else if Path::new("/etc/pam.d/login").exists() {
@@ -99,12 +120,8 @@ pub async fn main(config: Config) -> Result<(), Error> {
 
     let uid = Uid::from_raw(u.uid());
     let gid = Gid::from_raw(u.primary_group_id());
-    chown(config.internal.socket_path.as_str(), Some(uid), Some(gid)).map_err(|e| {
-        format!(
-            "unable to chown greetd socket at {}: {}",
-            &config.internal.socket_path, e
-        )
-    })?;
+
+    let mut listener = Listener::create(uid, gid)?;
 
     let term = Terminal::open(0).map_err(|e| format!("unable to open terminal: {}", e))?;
     let vt = match config.file.terminal.vt {
@@ -152,7 +169,7 @@ pub async fn main(config: Config) -> Result<(), Error> {
                 ctx.terminate().await.map_err(|e| format!("terminate: {}", e))?;
                 break;
             }
-            stream = listener.accept() => match stream {
+            stream = listener.0.accept() => match stream {
                 Ok((stream, _)) => {
                     let client_ctx = ctx.clone();
                     task::spawn_local(async move {

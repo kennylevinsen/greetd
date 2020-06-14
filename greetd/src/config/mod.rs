@@ -21,7 +21,6 @@ pub struct ConfigSession {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct ConfigInternal {
-    pub socket_path: String,
     pub session_worker: usize,
 }
 
@@ -192,9 +191,6 @@ pub fn read_config() -> Result<Config, Error> {
     }
 
     let internal = ConfigInternal {
-        socket_path: matches
-            .opt_str("socket-path")
-            .unwrap_or_else(|| "/run/greetd.sock".to_string()),
         session_worker: matches
             .opt_get("session-worker")
             .expect("unable to parse session-worker")
