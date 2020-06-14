@@ -160,12 +160,17 @@ pub async fn main(config: Config) -> Result<(), Error> {
     let mut alarm = signal(SignalKind::alarm()).expect("unable to listen for SIGALRM");
     let mut child = signal(SignalKind::child()).expect("unable to listen for SIGCHLD");
     let mut term = signal(SignalKind::terminate()).expect("unable to listen for SIGTERM");
+    let mut int = signal(SignalKind::interrupt()).expect("unable to listen for SIGINT");
 
     loop {
         tokio::select! {
             _ = child.recv() => ctx.check_children().await.map_err(|e| format!("check_children: {}", e))?,
             _ = alarm.recv() => ctx.alarm().await.map_err(|e| format!("alarm: {}", e))?,
             _ = term.recv() => {
+                ctx.terminate().await.map_err(|e| format!("terminate: {}", e))?;
+                break;
+            }
+            _ = int.recv() => {
                 ctx.terminate().await.map_err(|e| format!("terminate: {}", e))?;
                 break;
             }
