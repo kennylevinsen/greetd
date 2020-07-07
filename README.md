@@ -22,7 +22,15 @@ The below will install greetd, agreety and the default configuration. This looks
 
 ### From packages
 
+#### Arch Linux
+
 greetd and a few greeters are available in AUR for Arch Linux.
+
+#### Gentoo
+
+```sh
+emerge gui-libs/greetd
+```
 
 ### Manually from source
 
