@@ -103,6 +103,18 @@ impl Drop for Listener {
     }
 }
 
+// Returns if this is a fresh start
+fn check_and_update_boot() -> Result<bool, Error> {
+    let boot_id = std::fs::read_to_string("/proc/sys/kernel/random/boot_id")?;
+    let last_boot_id = std::fs::read_to_string("/run/greetd.lastboot");
+    std::fs::write("/run/greetd.lastboot", &boot_id)?;
+    if let Ok(b) = last_boot_id {
+        Ok(boot_id != b)
+    } else {
+        Ok(false)
+    }
+}
+
 pub async fn main(config: Config) -> Result<(), Error> {
     let service = if Path::new("/etc/pam.d/greetd").exists() {
         "greetd"
@@ -111,6 +123,18 @@ pub async fn main(config: Config) -> Result<(), Error> {
         "login"
     } else {
         return Err("PAM 'greetd' service missing".into());
+    };
+
+    // Note: Not portale. Maybe use /proc/stat btime?
+    let fresh_boot = match check_and_update_boot() {
+        Ok(v) => v,
+        Err(err) => {
+            eprintln!(
+                "warning: error identifying boot: {}. Initial session will be unavailable.",
+                err
+            );
+            false
+        }
     };
 
     let u = users::get_user_by_name(&config.file.default_session.user).ok_or(format!(
@@ -143,7 +167,8 @@ pub async fn main(config: Config) -> Result<(), Error> {
         service.to_string(),
     ));
 
-    if let Some(s) = config.file.initial_session {
+    if fresh_boot && config.file.initial_session.is_some() {
+        let s = config.file.initial_session.unwrap();
         if let Err(e) = ctx.start_user_session(&s.user, vec![s.command]).await {
             eprintln!("unable to start greeter: {}", e);
             reset_vt(vt).map_err(|e| format!("unable to reset VT: {}", e))?;
