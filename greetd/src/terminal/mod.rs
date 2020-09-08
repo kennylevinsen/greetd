@@ -6,7 +6,7 @@ use nix::{
     sys::stat::Mode,
     unistd::{close, dup2, write},
 };
-use std::os::unix::io::RawFd;
+use std::{ffi::CStr, os::unix::io::RawFd};
 
 #[allow(dead_code)]
 pub enum KdMode {
@@ -25,26 +25,65 @@ impl KdMode {
 
 pub struct Terminal {
     fd: RawFd,
+    autoclose: bool,
 }
 
 impl Drop for Terminal {
     fn drop(&mut self) {
-        close(self.fd).unwrap();
+        if self.autoclose {
+            close(self.fd).unwrap();
+        }
     }
+}
+
+fn ttyname_r(fd: RawFd) -> Result<String, Error> {
+    let mut arr: [u8; 32] = [0; 32];
+    let res = unsafe {
+        libc::ttyname_r(
+            fd as libc::c_int,
+            &mut arr[0] as *mut u8 as *mut libc::c_char,
+            31,
+        )
+    };
+    if res != 0 {
+        return Err("ttyname_r failed".into());
+    }
+    let len = unsafe { libc::strnlen(&arr[0] as *const u8 as *const libc::c_char, 31) };
+    let s = CStr::from_bytes_with_nul(&arr[..len + 1])
+        .map_err(|e| Error::Error(format!("ttyname_r result conversion failed: {}", e)))?;
+    Ok(s.to_str()
+        .map_err(|e| Error::Error(format!("ttyname_r result conversion failed: {}", e)))?
+        .to_string())
 }
 
 impl Terminal {
     /// Open the terminal file for the specified terminal number.
-    pub fn open(terminal: usize) -> Result<Terminal, Error> {
+    pub fn open(terminal: &str) -> Result<Terminal, Error> {
         let res = open(
-            format!("/dev/tty{}", terminal).as_str(),
+            terminal,
             OFlag::O_RDWR | OFlag::O_NOCTTY,
             Mode::from_bits_truncate(0o666),
         );
         match res {
-            Ok(fd) => Ok(Terminal { fd }),
-            Err(e) => Err(format!("terminal: unable to open: {}", e).into()),
+            Ok(fd) => Ok(Terminal {
+                fd,
+                autoclose: true,
+            }),
+            Err(e) => return Err(format!("terminal: unable to open: {}", e).into()),
         }
+    }
+
+    /// Open the terminal from stdin
+    pub fn stdin() -> Terminal {
+        Terminal {
+            fd: 0 as RawFd,
+            autoclose: false,
+        }
+    }
+
+    /// Returns the name of the TTY
+    pub fn ttyname(&self) -> Result<String, Error> {
+        ttyname_r(self.fd)
     }
 
     /// Set the kernel display to either graphics or text mode. Graphivs mode

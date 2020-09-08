@@ -10,7 +10,7 @@ use crate::{
     error::Error,
     session::{
         interface::{Session, SessionChild, SessionState},
-        worker::AuthMessageType as SessAuthMessageType,
+        worker::{AuthMessageType as SessAuthMessageType, TerminalMode},
     },
 };
 use greetd_ipc::AuthMessageType;
@@ -37,16 +37,16 @@ pub struct Context {
     inner: RwLock<ContextInner>,
     greeter_bin: String,
     greeter_user: String,
-    vt: usize,
     pam_service: String,
+    term_mode: TerminalMode,
 }
 
 impl Context {
     pub fn new(
         greeter_bin: String,
         greeter_user: String,
-        vt: usize,
         pam_service: String,
+        term_mode: TerminalMode,
     ) -> Context {
         Context {
             inner: RwLock::new(ContextInner {
@@ -56,8 +56,8 @@ impl Context {
             }),
             greeter_bin,
             greeter_user,
-            vt,
             pam_service,
+            term_mode,
         }
     }
 
@@ -72,7 +72,7 @@ impl Context {
     ) -> Result<SessionChild, Error> {
         let mut scheduled_session = Session::new_external()?;
         scheduled_session
-            .initiate(&self.pam_service, class, user, false, self.vt)
+            .initiate(&self.pam_service, class, user, false, &self.term_mode)
             .await?;
         loop {
             match scheduled_session.get_state().await {
@@ -157,7 +157,7 @@ impl Context {
         };
         session_set
             .session
-            .initiate(&self.pam_service, "user", &username, true, self.vt)
+            .initiate(&self.pam_service, "user", &username, true, &self.term_mode)
             .await?;
 
         let mut session = Some(session_set);
@@ -305,9 +305,7 @@ impl Context {
                             drop(inner);
                             let s = match scheduled.session.start().await {
                                 Ok(s) => s,
-                                Err(e) => {
-                                    return Err(format!("session start failed: {}", e).into());
-                                }
+                                Err(e) => return Err(format!("session start failed: {}", e).into()),
                             };
                             let mut inner = self.inner.write().await;
                             inner.current = Some(SessionChildSet {

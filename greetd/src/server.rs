@@ -11,6 +11,7 @@ use crate::{
     config::{Config, VtSelection},
     context::Context,
     error::Error,
+    session::worker::TerminalMode,
     terminal::{self, Terminal},
 };
 use greetd_ipc::{
@@ -18,10 +19,15 @@ use greetd_ipc::{
     ErrorType, Request, Response,
 };
 
-fn reset_vt(vt: usize) -> Result<(), Error> {
-    let term = Terminal::open(vt)?;
-    term.kd_setmode(terminal::KdMode::Text)?;
-    term.vt_setactivate(vt)?;
+fn reset_vt(term_mode: &TerminalMode) -> Result<(), Error> {
+    match term_mode {
+        TerminalMode::Terminal { path, vt, .. } => {
+            let term = Terminal::open(path)?;
+            term.kd_setmode(terminal::KdMode::Text)?;
+            term.vt_setactivate(*vt)?;
+        }
+        TerminalMode::Stdin => (),
+    }
     Ok(())
 }
 
@@ -76,6 +82,84 @@ async fn client_handler(ctx: &Context, mut s: UnixStream) -> Result<(), Error> {
     }
 }
 
+// Return a TTY path and the TTY/VT number, based on the configured target.
+//
+// If the target is VtSelection::Current, return the path to the TTY
+// referenced by stdin and the TTY number it is connected to if possible. If
+// the referenced TTY is a PTY, fail. Otherwise, open tty0, get the current VT
+// number, and return the path to that TTY and VT.
+//
+// If the target is VtSelection::Next, open tty0 and request the next VT
+// number. Return the TTY and VT
+//
+// If the target is VtSelection::Specific, simply return the specified TTY and
+// VT.
+//
+// If the target is VtSelection::None, return nothing.
+fn get_tty(config: &Config) -> Result<TerminalMode, Error> {
+    const TTY_PREFIX: &str = "/dev/tty";
+    const PTS_PREFIX: &str = "/dev/pts";
+
+    let term = match config.file.terminal.vt {
+        VtSelection::Current => {
+            let term = Terminal::stdin();
+            match term.ttyname() {
+                // We have a usable terminal, so let's decipher and return that
+                Ok(term_name)
+                    if term_name.starts_with(TTY_PREFIX) && term_name.len() > TTY_PREFIX.len() =>
+                {
+                    let vt = term_name[TTY_PREFIX.len()..]
+                        .parse()
+                        .map_err(|e| Error::Error(format!("unable to parse tty number: {}", e)))?;
+
+                    TerminalMode::Terminal {
+                        path: term_name,
+                        vt,
+                        switch: false,
+                    }
+                }
+                Ok(term_name) if term_name.starts_with(PTS_PREFIX) => {
+                    return Err("cannot use current VT when started from a psuedo terminal".into())
+                }
+                // We don't have a usable terminal, so we have to jump through some hoops
+                _ => {
+                    let sys_term = Terminal::open("/dev/tty0")
+                        .map_err(|e| format!("unable to open terminal: {}", e))?;
+                    let vt = sys_term
+                        .vt_get_current()
+                        .map_err(|e| format!("unable to get current VT: {}", e))?;
+                    TerminalMode::Terminal {
+                        path: format!("/dev/tty{}", vt),
+                        vt,
+                        switch: false,
+                    }
+                }
+            }
+        }
+        VtSelection::Next => {
+            let term = Terminal::open("/dev/tty0")
+                .map_err(|e| format!("unable to open terminal: {}", e))?;
+            let vt = term
+                .vt_get_next()
+                .map_err(|e| format!("unable to get next VT: {}", e))?;
+            TerminalMode::Terminal {
+                path: format!("/dev/tty{}", vt),
+                vt,
+                switch: true,
+            }
+        }
+        VtSelection::None => TerminalMode::Stdin,
+        VtSelection::Specific(vt) => TerminalMode::Terminal {
+            path: format!("/dev/tty{}", vt),
+            vt,
+            switch: true,
+        },
+    };
+    return Ok(term);
+}
+
+// Listener is a convenience wrapper for creating the UnixListener we need, and
+// for providing cleanup on Drop.
 struct Listener(UnixListener);
 
 impl Listener {
@@ -123,36 +207,25 @@ pub async fn main(config: Config) -> Result<(), Error> {
 
     let mut listener = Listener::create(uid, gid)?;
 
-    let term = Terminal::open(0).map_err(|e| format!("unable to open terminal: {}", e))?;
-    let vt = match config.file.terminal.vt {
-        VtSelection::Current => term
-            .vt_get_current()
-            .map_err(|e| format!("unable to get current VT: {}", e))?,
-        VtSelection::Next => term
-            .vt_get_next()
-            .map_err(|e| format!("unable to get next VT: {}", e))?,
-        VtSelection::None => 0,
-        VtSelection::Specific(v) => v,
-    };
-    drop(term);
+    let term_mode = get_tty(&config)?;
 
     let ctx = Rc::new(Context::new(
         config.file.default_session.command,
         config.file.default_session.user,
-        vt,
         service.to_string(),
+        term_mode.clone(),
     ));
 
     if let Some(s) = config.file.initial_session {
         if let Err(e) = ctx.start_user_session(&s.user, vec![s.command]).await {
             eprintln!("unable to start greeter: {}", e);
-            reset_vt(vt).map_err(|e| format!("unable to reset VT: {}", e))?;
+            reset_vt(&term_mode).map_err(|e| format!("unable to reset VT: {}", e))?;
 
             std::process::exit(1);
         }
     } else if let Err(e) = ctx.greet().await {
         eprintln!("unable to start greeter: {}", e);
-        reset_vt(vt).map_err(|e| format!("unable to reset VT: {}", e))?;
+        reset_vt(&term_mode).map_err(|e| format!("unable to reset VT: {}", e))?;
 
         std::process::exit(1);
     }

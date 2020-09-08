@@ -13,7 +13,7 @@ use async_trait::async_trait;
 
 use tokio::net::UnixDatagram as TokioUnixDatagram;
 
-use super::worker::{AuthMessageType, ParentToSessionChild, SessionChildToParent};
+use super::worker::{AuthMessageType, ParentToSessionChild, SessionChildToParent, TerminalMode};
 use crate::error::Error;
 
 #[async_trait]
@@ -54,14 +54,14 @@ impl AsyncRecv<SessionChildToParent> for SessionChildToParent {
 
 /// SessionChild tracks the processes spawned by a session
 pub struct SessionChild {
-    task: Pid,
-    sub_task: Pid,
+    pub task: Pid,
+    pub sub_task: Pid,
 }
 
 impl SessionChild {
     /// Check if this session has this pid.
     pub fn owns_pid(&self, pid: Pid) -> bool {
-        self.task == pid || self.sub_task == pid
+        self.task == pid
     }
 
     /// Send SIGTERM to the session child.
@@ -136,14 +136,14 @@ impl Session {
         class: &str,
         user: &str,
         authenticate: bool,
-        vt: usize,
+        term_mode: &TerminalMode,
     ) -> Result<(), Error> {
         let msg = ParentToSessionChild::InitiateLogin {
             service: service.to_string(),
             class: class.to_string(),
             user: user.to_string(),
             authenticate,
-            vt,
+            tty: term_mode.clone(),
         };
         msg.send(&mut self.sock).await?;
         Ok(())
