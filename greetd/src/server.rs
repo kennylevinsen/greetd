@@ -197,6 +197,12 @@ pub async fn main(config: Config) -> Result<(), Error> {
         return Err("PAM 'greetd' service missing".into());
     };
 
+    let greeter_service = if Path::new("/etc/pam.d/greetd-greeter").exists() {
+        "greetd-greeter"
+    } else {
+        service
+    };
+
     let u = users::get_user_by_name(&config.file.default_session.user).ok_or(format!(
         "configured default session user '{}' not found",
         &config.file.default_session.user
@@ -212,6 +218,7 @@ pub async fn main(config: Config) -> Result<(), Error> {
     let ctx = Rc::new(Context::new(
         config.file.default_session.command,
         config.file.default_session.user,
+        greeter_service.to_string(),
         service.to_string(),
         term_mode.clone(),
     ));

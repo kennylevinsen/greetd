@@ -37,6 +37,7 @@ pub struct Context {
     inner: RwLock<ContextInner>,
     greeter_bin: String,
     greeter_user: String,
+    greeter_service: String,
     pam_service: String,
     term_mode: TerminalMode,
 }
@@ -45,6 +46,7 @@ impl Context {
     pub fn new(
         greeter_bin: String,
         greeter_user: String,
+        greeter_service: String,
         pam_service: String,
         term_mode: TerminalMode,
     ) -> Context {
@@ -56,6 +58,7 @@ impl Context {
             }),
             greeter_bin,
             greeter_user,
+            greeter_service,
             pam_service,
             term_mode,
         }
@@ -68,11 +71,12 @@ impl Context {
         &self,
         class: &str,
         user: &str,
+        service: &str,
         cmd: Vec<String>,
     ) -> Result<SessionChild, Error> {
         let mut scheduled_session = Session::new_external()?;
         scheduled_session
-            .initiate(&self.pam_service, class, user, false, &self.term_mode)
+            .initiate(&service, class, user, false, &self.term_mode)
             .await?;
         loop {
             match scheduled_session.get_state().await {
@@ -93,6 +97,7 @@ impl Context {
         self.start_unauthenticated_session(
             "greeter",
             &self.greeter_user,
+            &self.greeter_service,
             vec![self.greeter_bin.to_string()],
         )
         .await
@@ -128,7 +133,7 @@ impl Context {
         let mut inner = self.inner.write().await;
         inner.current = Some(SessionChildSet {
             child: self
-                .start_unauthenticated_session("user", user, cmd)
+                .start_unauthenticated_session("user", user, &self.pam_service, cmd)
                 .await?,
             time: Instant::now(),
             is_greeter: false,
