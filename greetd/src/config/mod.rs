@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, fs::read_to_string};
+use std::{collections::HashMap, default::Default, env, fs::read_to_string};
 
 use enquote::unquote;
 use getopts::Options;
@@ -13,23 +13,29 @@ pub enum VtSelection {
     Specific(usize),
 }
 
-#[derive(Debug, Eq, PartialEq)]
+impl Default for VtSelection {
+    fn default() -> Self {
+        VtSelection::None
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Default)]
 pub struct ConfigSession {
     pub command: String,
     pub user: String,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Default)]
 pub struct ConfigInternal {
     pub session_worker: usize,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Default)]
 pub struct ConfigTerminal {
     pub vt: VtSelection,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Default)]
 pub struct ConfigFile {
     pub terminal: ConfigTerminal,
     pub default_session: ConfigSession,
@@ -196,6 +202,13 @@ pub fn read_config() -> Result<Config, Error> {
             .expect("unable to parse session-worker")
             .unwrap_or(0),
     };
+
+    if internal.session_worker > 0 {
+        return Ok(Config {
+            file: Default::default(),
+            internal,
+        });
+    }
 
     let config_str = match matches.opt_str("config") {
         Some(v) => read_to_string(v),
