@@ -137,6 +137,7 @@ impl Session {
         user: &str,
         authenticate: bool,
         term_mode: &TerminalMode,
+        source_profile: bool,
     ) -> Result<(), Error> {
         let msg = ParentToSessionChild::InitiateLogin {
             service: service.to_string(),
@@ -144,6 +145,7 @@ impl Session {
             user: user.to_string(),
             authenticate,
             tty: term_mode.clone(),
+            source_profile,
         };
         msg.send(&mut self.sock).await?;
         Ok(())

@@ -36,8 +36,14 @@ pub struct ConfigTerminal {
 }
 
 #[derive(Debug, Eq, PartialEq, Default)]
+pub struct ConfigGeneral {
+    pub source_profile: bool,
+}
+
+#[derive(Debug, Eq, PartialEq, Default)]
 pub struct ConfigFile {
     pub terminal: ConfigTerminal,
+    pub general: ConfigGeneral,
     pub default_session: ConfigSession,
     pub initial_session: Option<ConfigSession>,
 }
@@ -90,6 +96,9 @@ fn parse_old_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<Confi
         default_session: ConfigSession {
             user: greeter_user,
             command: greeter,
+        },
+        general: ConfigGeneral {
+            source_profile: true,
         },
         initial_session: None,
     })
@@ -150,9 +159,23 @@ fn parse_new_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<Confi
         None => Err("no terminal specified"),
     }?;
 
+    let general = match config.get("general") {
+        Some(section) => ConfigGeneral {
+            source_profile: section
+                .get("source_profile")
+                .unwrap_or(&"true")
+                .parse()
+                .map_err(|e| format!("could not parse source_profile: {}", e))?,
+        },
+        None => ConfigGeneral {
+            source_profile: true,
+        },
+    };
+
     Ok(ConfigFile {
         initial_session,
         default_session,
+        general,
         terminal,
     })
 }

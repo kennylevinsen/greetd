@@ -40,6 +40,7 @@ pub struct Context {
     greeter_service: String,
     pam_service: String,
     term_mode: TerminalMode,
+    source_profile: bool,
 }
 
 impl Context {
@@ -49,6 +50,7 @@ impl Context {
         greeter_service: String,
         pam_service: String,
         term_mode: TerminalMode,
+        source_profile: bool,
     ) -> Context {
         Context {
             inner: RwLock::new(ContextInner {
@@ -61,6 +63,7 @@ impl Context {
             greeter_service,
             pam_service,
             term_mode,
+            source_profile,
         }
     }
 
@@ -76,7 +79,14 @@ impl Context {
     ) -> Result<SessionChild, Error> {
         let mut scheduled_session = Session::new_external()?;
         scheduled_session
-            .initiate(&service, class, user, false, &self.term_mode)
+            .initiate(
+                &service,
+                class,
+                user,
+                false,
+                &self.term_mode,
+                self.source_profile,
+            )
             .await?;
         loop {
             match scheduled_session.get_state().await {
@@ -162,7 +172,14 @@ impl Context {
         };
         session_set
             .session
-            .initiate(&self.pam_service, "user", &username, true, &self.term_mode)
+            .initiate(
+                &self.pam_service,
+                "user",
+                &username,
+                true,
+                &self.term_mode,
+                self.source_profile,
+            )
             .await?;
 
         let mut session = Some(session_set);

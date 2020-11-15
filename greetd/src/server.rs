@@ -221,6 +221,7 @@ pub async fn main(config: Config) -> Result<(), Error> {
         greeter_service.to_string(),
         service.to_string(),
         term_mode.clone(),
+        config.file.general.source_profile,
     ));
 
     if let Some(s) = config.file.initial_session {

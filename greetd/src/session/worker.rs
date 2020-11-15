@@ -40,6 +40,7 @@ pub enum ParentToSessionChild {
         user: String,
         authenticate: bool,
         tty: TerminalMode,
+        source_profile: bool,
     },
     PamResponse {
         resp: Option<String>,
@@ -80,17 +81,19 @@ impl SessionChildToParent {
 /// responsible for the entirety of the session setup and execution. It is
 /// started by Session::start.
 fn worker(sock: &UnixDatagram) -> Result<(), Error> {
-    let (service, class, user, authenticate, tty) = match ParentToSessionChild::recv(sock)? {
-        ParentToSessionChild::InitiateLogin {
-            service,
-            class,
-            user,
-            authenticate,
-            tty,
-        } => (service, class, user, authenticate, tty),
-        ParentToSessionChild::Cancel => return Err("cancelled".into()),
-        msg => return Err(format!("expected InitiateLogin or Cancel, got: {:?}", msg).into()),
-    };
+    let (service, class, user, authenticate, tty, source_profile) =
+        match ParentToSessionChild::recv(sock)? {
+            ParentToSessionChild::InitiateLogin {
+                service,
+                class,
+                user,
+                authenticate,
+                tty,
+                source_profile,
+            } => (service, class, user, authenticate, tty, source_profile),
+            ParentToSessionChild::Cancel => return Err("cancelled".into()),
+            msg => return Err(format!("expected InitiateLogin or Cancel, got: {:?}", msg).into()),
+        };
 
     let conv = Box::pin(SessionConv::new(sock));
     let mut pam = PamSession::start(&service, &user, conv)?;
@@ -206,10 +209,14 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
 
     // Prepare some strings in C format that we'll need.
     let cusername = CString::new(username)?;
-    let command = format!(
-        "[ -f /etc/profile ] && . /etc/profile; [ -f $HOME/.profile ] && . $HOME/.profile; exec {}",
-        cmd.join(" ")
-    );
+    let command = if source_profile {
+        format!(
+            "[ -f /etc/profile ] && . /etc/profile; [ -f $HOME/.profile ] && . $HOME/.profile; exec {}",
+            cmd.join(" ")
+        )
+    } else {
+        format!("exec {}", cmd.join(" "))
+    };
 
     // Extract PAM environment for use with execve below.
     let pamenvlist = pam.getenvlist()?;
