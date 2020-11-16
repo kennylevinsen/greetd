@@ -37,6 +37,15 @@ This section contains terminal configuration.
 
 	Use of a specific VT with appropriate conflict avoidance is recommended.
 
+## general
+
+This section contains general configuration that does not fit in other sections
+nor deserved its own section.
+
+*source_profile* = true|false
+	Whether or not to source ~/.profile and /etc/profile if present when running
+	commands. Defaults to true.
+
 ## default_session
 
 This section describes the default session, also referred to as the *greeter*.
