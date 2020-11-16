@@ -35,9 +35,17 @@ pub struct ConfigTerminal {
     pub vt: VtSelection,
 }
 
-#[derive(Debug, Eq, PartialEq, Default)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ConfigGeneral {
     pub source_profile: bool,
+}
+
+impl Default for ConfigGeneral {
+    fn default() -> Self {
+        ConfigGeneral {
+            source_profile: true,
+        }
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, Default)]
@@ -97,9 +105,7 @@ fn parse_old_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<Confi
             user: greeter_user,
             command: greeter,
         },
-        general: ConfigGeneral {
-            source_profile: true,
-        },
+        general: Default::default(),
         initial_session: None,
     })
 }
@@ -167,9 +173,7 @@ fn parse_new_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<Confi
                 .parse()
                 .map_err(|e| format!("could not parse source_profile: {}", e))?,
         },
-        None => ConfigGeneral {
-            source_profile: true,
-        },
+        None => Default::default(),
     };
 
     Ok(ConfigFile {
@@ -290,6 +294,7 @@ greeter_user = \"greeter\"
                     command: "agreety".to_string(),
                     user: "greeter".to_string(),
                 },
+                general: Default::default(),
                 initial_session: None,
             }
         );
@@ -311,6 +316,7 @@ greeter = \"agreety\"
                     command: "agreety".to_string(),
                     user: "greeter".to_string(),
                 },
+                general: Default::default(),
                 initial_session: None,
             }
         );
@@ -337,6 +343,7 @@ command = \"agreety\"
                     command: "agreety".to_string(),
                     user: "greeter".to_string(),
                 },
+                general: Default::default(),
                 initial_session: None,
             }
         );
@@ -363,12 +370,53 @@ user = \"john\"
                     command: "agreety".to_string(),
                     user: "greeter".to_string(),
                 },
+                general: Default::default(),
                 initial_session: Some(ConfigSession {
                     command: "sway".to_string(),
                     user: "john".to_string(),
                 }),
             }
         );
+    }
+
+    #[test]
+    fn general() {
+        let config = parse_config(
+            "
+[terminal]\nvt = 1\n[default_session]\ncommand = \"agreety\"
+[general]
+source_profile = false
+",
+        )
+        .expect("config didn't parse");
+        assert_eq!(
+            config,
+            ConfigFile {
+                terminal: ConfigTerminal {
+                    vt: VtSelection::Specific(1)
+                },
+                default_session: ConfigSession {
+                    command: "agreety".to_string(),
+                    user: "greeter".to_string(),
+                },
+                general: ConfigGeneral {
+                    source_profile: false,
+                },
+                initial_session: None,
+            }
+        );
+    }
+
+    #[test]
+    fn invalid_general() {
+        assert!(parse_config(
+            "
+[terminal]\nvt = 1\n[default_session]\ncommand = \"agreety\"
+[general]
+source_profile = fals
+",
+        )
+        .is_err())
     }
 
     #[test]
@@ -391,6 +439,7 @@ vt = 1
                     command: "agreety".to_string(),
                     user: "greeter".to_string(),
                 },
+                general: Default::default(),
                 initial_session: None,
             }
         );
@@ -412,6 +461,7 @@ vt = next
                     command: "agreety".to_string(),
                     user: "greeter".to_string(),
                 },
+                general: Default::default(),
                 initial_session: None,
             }
         );
@@ -433,6 +483,7 @@ vt = current
                     command: "agreety".to_string(),
                     user: "greeter".to_string(),
                 },
+                general: Default::default(),
                 initial_session: None,
             }
         );
