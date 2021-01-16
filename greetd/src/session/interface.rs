@@ -105,7 +105,7 @@ impl Session {
         let cur_exe = std::env::current_exe()?;
         let bin = CString::new(cur_exe.to_str().expect("unable to get current exe name"))?;
 
-        let child = match fork().map_err(|e| format!("unable to fork: {}", e))? {
+        let child = match unsafe { fork() }.map_err(|e| format!("unable to fork: {}", e))? {
             ForkResult::Parent { child, .. } => child,
             ForkResult::Child => {
                 execv(

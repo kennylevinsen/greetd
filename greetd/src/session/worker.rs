@@ -225,7 +225,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     // PAM is weird and gets upset if you exec from the process that opened
     // the session, registering it automatically as a log-out. Thus, we must
     // exec in a new child.
-    let child = match fork().map_err(|e| format!("unable to fork: {}", e))? {
+    let child = match unsafe { fork() }.map_err(|e| format!("unable to fork: {}", e))? {
         ForkResult::Parent { child, .. } => child,
         ForkResult::Child => {
             // It is important that we do *not* return from here by
