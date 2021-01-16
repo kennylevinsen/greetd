@@ -6,7 +6,7 @@ use tokio::{
     net::{UnixListener, UnixStream},
     process::Command,
     task,
-    time::delay_for,
+    time::sleep,
 };
 
 use crate::error::Error;
@@ -82,7 +82,7 @@ impl Context {
                 || s.password != Some("password".to_string())
                 || response != Some("9".to_string())
             {
-                delay_for(Duration::from_millis(2000)).await;
+                sleep(Duration::from_millis(2000)).await;
                 return Err(Error::AuthError("nope".to_string()));
             }
             s.ok = true;
@@ -94,7 +94,7 @@ impl Context {
         if !self.inner.borrow().ok {
             return Err(Error::Error("not yet dammit".to_string()));
         }
-        delay_for(Duration::from_millis(5000)).await;
+        sleep(Duration::from_millis(5000)).await;
         Ok(())
     }
 
@@ -151,7 +151,7 @@ pub async fn server() -> Result<(), Error> {
     std::env::set_var("GREETD_SOCK", path);
 
     let _ = std::fs::remove_file(path);
-    let mut listener =
+    let listener =
         UnixListener::bind(path).map_err(|e| format!("unable to open listener: {}", e))?;
 
     let arg = env::args().nth(1).expect("need argument");
@@ -174,7 +174,7 @@ pub async fn server() -> Result<(), Error> {
     }
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     let res = task::LocalSet::new()
         .run_until(async move { server().await })

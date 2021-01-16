@@ -4,7 +4,7 @@ use nix::{
     sys::wait::{waitpid, WaitPidFlag, WaitStatus},
     unistd::alarm,
 };
-use tokio::{sync::RwLock, time::delay_for};
+use tokio::{sync::RwLock, time::sleep};
 
 use crate::{
     error::Error,
@@ -341,7 +341,7 @@ impl Context {
                                 return Err("greeter exited without creating a session".into());
                             }
                             if sesion_length < Duration::from_secs(1) {
-                                delay_for(Duration::from_secs(1)).await;
+                                sleep(Duration::from_secs(1)).await;
                             }
                             inner.current = Some(SessionChildSet {
                                 child: self.start_greeter().await?,

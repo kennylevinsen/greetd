@@ -29,7 +29,7 @@ async fn session_worker_main(config: config::Config) -> Result<(), Error> {
     worker::main(&sock)
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     let config = match config::read_config() {
         Ok(config) => config,

@@ -211,7 +211,7 @@ pub async fn main(config: Config) -> Result<(), Error> {
     let uid = Uid::from_raw(u.uid());
     let gid = Gid::from_raw(u.primary_group_id());
 
-    let mut listener = Listener::create(uid, gid)?;
+    let listener = Listener::create(uid, gid)?;
 
     let term_mode = get_tty(&config)?;
 
