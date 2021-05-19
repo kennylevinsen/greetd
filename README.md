@@ -56,3 +56,7 @@ systemctl enable --now greetd
 ## How do I write my own greeter?
 
 All you need to do is an application that can speak the greetd IPC protocol, which is documented in `greetd-ipc(7)`. See gtkgreet or agreety for inspiration.
+
+# How to discuss
+
+Go to #kennylevinsen @ irc.libera.chat to discuss, or use [~kennylevinsen/greetd-devel@lists.sr.ht](https://lists.sr.ht/~kennylevinsen/greetd-devel).
