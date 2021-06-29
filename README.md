@@ -46,7 +46,7 @@ cp config.toml /etc/greetd/config.toml
 
 # Create the greeter user
 sudo useradd -M -G video greeter
-sudo chown -R greeter:greeter /etc/greetd/
+sudo chmod -R go+r /etc/greetd/
 
 # Look in the configuration file `/etc/greetd/config.toml` and edit as appropriate.
 # When done, enable and start greetd
