@@ -1,4 +1,8 @@
-use std::time::{Duration, Instant};
+use std::{
+    fs::File,
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use nix::{
     sys::wait::{waitpid, WaitPidFlag, WaitStatus},
@@ -41,6 +45,7 @@ pub struct Context {
     pam_service: String,
     term_mode: TerminalMode,
     source_profile: bool,
+    runfile: String,
 }
 
 impl Context {
@@ -51,6 +56,7 @@ impl Context {
         pam_service: String,
         term_mode: TerminalMode,
         source_profile: bool,
+        runfile: String,
     ) -> Context {
         Context {
             inner: RwLock::new(ContextInner {
@@ -64,6 +70,7 @@ impl Context {
             pam_service,
             term_mode,
             source_profile,
+            runfile,
         }
     }
 
@@ -129,6 +136,18 @@ impl Context {
             is_greeter: true,
         });
         Ok(())
+    }
+
+    /// Check if this is the first time greetd starts since boot, or if it restarted for any reason
+    pub fn is_first_run(&self) -> bool {
+        !Path::new(&self.runfile).exists()
+    }
+
+    /// Create runfile used to check if greetd was already started since boot
+    pub fn create_runfile(&self) {
+        if let Err(err) = File::create(&self.runfile) {
+            eprintln!("could not create runfile: {}", err);
+        }
     }
 
     /// Directly start an initial session, bypassing the normal scheduling.

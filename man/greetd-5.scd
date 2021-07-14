@@ -46,6 +46,13 @@ nor deserved its own section.
 	Whether or not to source ~/.profile and /etc/profile if present when running
 	commands. Defaults to true.
 
+*runfile* = path-to-runfile
+  Location of greetd's runfile that is created during the first run to prevent
+  the initial session from being run again on session termination or on greetd
+  restart.
+
+  This file should be in a location that is cleared during a reboot.
+
 ## default_session
 
 This section describes the default session, also referred to as the *greeter*.
@@ -65,6 +72,11 @@ This section describes the default session, also referred to as the *greeter*.
 
 This optional section describes the initial session, commonly referred to as
 "auto-login".
+
+The initial session will only be executed during the first run of greetd since
+boot in order to ensure signing out works properly and to prevent security
+issues whenever greetd or the greeter exit. This is checked through the
+presence of the runfile.
 
 *command* = command-line
 	The command-line to run to start the initial session, e.g. "sway". The

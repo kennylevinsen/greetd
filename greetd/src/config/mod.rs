@@ -5,6 +5,8 @@ use getopts::Options;
 
 use super::error::Error;
 
+const RUNFILE: &str = "/run/greetd.run";
+
 #[derive(Debug, Eq, PartialEq)]
 pub enum VtSelection {
     Next,
@@ -38,12 +40,14 @@ pub struct ConfigTerminal {
 #[derive(Debug, Eq, PartialEq)]
 pub struct ConfigGeneral {
     pub source_profile: bool,
+    pub runfile: String,
 }
 
 impl Default for ConfigGeneral {
     fn default() -> Self {
         ConfigGeneral {
             source_profile: true,
+            runfile: RUNFILE.to_string(),
         }
     }
 }
@@ -166,13 +170,21 @@ fn parse_new_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<Confi
     }?;
 
     let general = match config.get("general") {
-        Some(section) => ConfigGeneral {
-            source_profile: section
-                .get("source_profile")
-                .unwrap_or(&"true")
-                .parse()
-                .map_err(|e| format!("could not parse source_profile: {}", e))?,
-        },
+        Some(section) => {
+            let runfilestr = section.get("runfile").unwrap_or(&RUNFILE);
+            let runfile = maybe_unquote(runfilestr)
+                .map_err(|e| format!("unable to read general.runfile: {}", e))?;
+
+            ConfigGeneral {
+                source_profile: section
+                    .get("source_profile")
+                    .unwrap_or(&"true")
+                    .parse()
+                    .map_err(|e| format!("could not parse source_profile: {}", e))?,
+                runfile,
+            }
+        }
+
         None => Default::default(),
     };
 
@@ -386,6 +398,7 @@ user = \"john\"
 [terminal]\nvt = 1\n[default_session]\ncommand = \"agreety\"
 [general]
 source_profile = false
+runfile = \"/path/to/greetd.state\"
 ",
         )
         .expect("config didn't parse");
@@ -401,6 +414,7 @@ source_profile = false
                 },
                 general: ConfigGeneral {
                     source_profile: false,
+                    runfile: "/path/to/greetd.state".to_string(),
                 },
                 initial_session: None,
             }
