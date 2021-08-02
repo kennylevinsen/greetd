@@ -47,11 +47,11 @@ nor deserved its own section.
 	commands. Defaults to true.
 
 *runfile* = path-to-runfile
-  Location of greetd's runfile that is created during the first run to prevent
-  the initial session from being run again on session termination or on greetd
-  restart.
+	Location of greetd's runfile that is created during the first run to prevent
+	the initial session from being run again on session termination or on greetd
+	restart.
 
-  This file should be in a location that is cleared during a reboot.
+	This file should be in a location that is cleared during a reboot.
 
 ## default_session
 
