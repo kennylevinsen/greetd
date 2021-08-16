@@ -31,6 +31,17 @@ fn reset_vt(term_mode: &TerminalMode) -> Result<(), Error> {
     Ok(())
 }
 
+fn wait_vt(term_mode: &TerminalMode) -> Result<(), Error> {
+    match term_mode {
+        TerminalMode::Terminal { path, vt, .. } => {
+            let term = Terminal::open(path)?;
+            term.vt_waitactive(*vt)?;
+        }
+        TerminalMode::Stdin => (),
+    }
+    Ok(())
+}
+
 fn wrap_result<T>(res: Result<T, Error>) -> Response {
     match res {
         Ok(_) => Response::Success,
@@ -145,14 +156,14 @@ fn get_tty(config: &Config) -> Result<TerminalMode, Error> {
             TerminalMode::Terminal {
                 path: format!("/dev/tty{}", vt),
                 vt,
-                switch: true,
+                switch: config.file.terminal.switch,
             }
         }
         VtSelection::None => TerminalMode::Stdin,
         VtSelection::Specific(vt) => TerminalMode::Terminal {
             path: format!("/dev/tty{}", vt),
             vt,
-            switch: true,
+            switch: config.file.terminal.switch,
         },
     };
     return Ok(term);
@@ -214,6 +225,10 @@ pub async fn main(config: Config) -> Result<(), Error> {
     let listener = Listener::create(uid, gid)?;
 
     let term_mode = get_tty(&config)?;
+
+    if !config.file.terminal.switch {
+        wait_vt(&term_mode).map_err(|e| format!("unable to wait VT: {}", e))?;
+    }
 
     let ctx = Rc::new(Context::new(
         config.file.default_session.command,

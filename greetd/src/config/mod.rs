@@ -35,6 +35,7 @@ pub struct ConfigInternal {
 #[derive(Debug, Eq, PartialEq, Default)]
 pub struct ConfigTerminal {
     pub vt: VtSelection,
+    pub switch: bool,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -104,7 +105,7 @@ fn parse_old_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<Confi
     };
 
     Ok(ConfigFile {
-        terminal: ConfigTerminal { vt },
+        terminal: ConfigTerminal { vt, switch: true },
         default_session: ConfigSession {
             user: greeter_user,
             command: greeter,
@@ -165,6 +166,11 @@ fn parse_new_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<Confi
                         .map_err(|e| format!("could not parse vt number: {}", e))?,
                 ),
             },
+            switch: section
+                .get("switch")
+                .unwrap_or(&"true")
+                .parse()
+                .map_err(|e| format!("could not parse switch: {}", e))?,
         }),
         None => Err("no terminal specified"),
     }?;
@@ -300,7 +306,8 @@ greeter_user = \"greeter\"
             config,
             ConfigFile {
                 terminal: ConfigTerminal {
-                    vt: VtSelection::Specific(1)
+                    vt: VtSelection::Specific(1),
+                    switch: true,
                 },
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
@@ -322,7 +329,8 @@ greeter = \"agreety\"
             config,
             ConfigFile {
                 terminal: ConfigTerminal {
-                    vt: VtSelection::Next
+                    vt: VtSelection::Next,
+                    switch: true,
                 },
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
@@ -349,7 +357,8 @@ command = \"agreety\"
             config,
             ConfigFile {
                 terminal: ConfigTerminal {
-                    vt: VtSelection::Specific(1)
+                    vt: VtSelection::Specific(1),
+                    switch: true,
                 },
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
@@ -376,7 +385,8 @@ user = \"john\"
             config,
             ConfigFile {
                 terminal: ConfigTerminal {
-                    vt: VtSelection::Specific(1)
+                    vt: VtSelection::Specific(1),
+                    switch: true,
                 },
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
@@ -406,7 +416,8 @@ runfile = \"/path/to/greetd.state\"
             config,
             ConfigFile {
                 terminal: ConfigTerminal {
-                    vt: VtSelection::Specific(1)
+                    vt: VtSelection::Specific(1),
+                    switch: true,
                 },
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
@@ -447,7 +458,8 @@ vt = 1
             config,
             ConfigFile {
                 terminal: ConfigTerminal {
-                    vt: VtSelection::Specific(1)
+                    vt: VtSelection::Specific(1),
+                    switch: true,
                 },
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
@@ -469,7 +481,8 @@ vt = next
             config,
             ConfigFile {
                 terminal: ConfigTerminal {
-                    vt: VtSelection::Next
+                    vt: VtSelection::Next,
+                    switch: true,
                 },
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
@@ -491,7 +504,8 @@ vt = current
             config,
             ConfigFile {
                 terminal: ConfigTerminal {
-                    vt: VtSelection::Current
+                    vt: VtSelection::Current,
+                    switch: true,
                 },
                 default_session: ConfigSession {
                     command: "agreety".to_string(),

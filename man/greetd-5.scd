@@ -37,6 +37,16 @@ This section contains terminal configuration.
 
 	Use of a specific VT with appropriate conflict avoidance is recommended.
 
+*switch* = true|false
+	Whether or not to switch to *vt*.
+
+	If set to false and *vt* is not currently active VT, greetd will wait for
+	*vt* to become active, before doing anything including starting greeter.
+
+	If set to true, greetd will switch current VT to *vt*,
+
+	Default is true.
+
 ## general
 
 This section contains general configuration that does not fit in other sections

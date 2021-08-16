@@ -111,6 +111,14 @@ impl Terminal {
         Ok(())
     }
 
+    /// Waits for specified VT to become active.
+    pub fn vt_waitactive(&self, target_vt: usize) -> Result<(), Error> {
+        if let Err(v) = unsafe { ioctl::vt_waitactive(self.fd, target_vt as i32) } {
+            return Err(format!("terminal: unable to wait for activation: {}", v).into());
+        }
+        Ok(())
+    }
+
     /// Set the VT mode to VT_AUTO with everything cleared.
     fn vt_mode_clean(&self) -> Result<(), Error> {
         let mode = ioctl::vt_mode {
