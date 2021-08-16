@@ -8,7 +8,7 @@
 //! use greetd_ipc::{Request, Response};
 //! use greetd_ipc::codec::TokioCodec;
 //!
-//! #[tokio::main]
+//! #[tokio::main(flavor = "current_thread")]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let mut stream = UnixStream::connect(env::var("GREETD_SOCK")?).await?;
 //!     Request::CreateSession { username: "john".to_string() }.write_to(&mut stream).await?;
