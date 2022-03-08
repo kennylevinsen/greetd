@@ -11,7 +11,8 @@ See the [wiki](https://man.sr.ht/~kennylevinsen/greetd) for FAQ, guides for comm
 ## List of known greetd greeters
 
 - agreety - The simple, text-based greeter living in this repo is a simple example.
-- [gtkgreet](https://git.sr.ht/~kennylevinsen/gtkgreet) - The flagship graphical, GTK based greeter (xdg-shell or wlr-layer-shell, to be used with something like `cage`)
+- [gtkgreet](https://git.sr.ht/~kennylevinsen/gtkgreet) - The flagship graphical, GTK based greeter (xdg-shell or wlr-layer-shell, to be used with something like `sway`)
+- [qtgreet](https://gitlab.com/marcusbritanicus/QtGreet) - Qt-based greeter (using wlr-layer-shell, to be used with something like `sway`)
 - [dlm](https://git.sr.ht/~kennylevinsen/dlm) - Dumb Login Manager (using fbdev)
 - [wlgreet](https://git.sr.ht/~kennylevinsen/wlgreet) - Wayland greeter (using wlr-layer-shell, to be used with something like `sway`)
 - [tuigreet](https://github.com/apognu/tuigreet) - Console UI greeter (using tui-rs)
