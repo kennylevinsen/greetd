@@ -68,10 +68,13 @@ nor deserved its own section.
 This section describes the default session, also referred to as the *greeter*.
 
 *command* = command-line
-	The command-line to run to start the default session, e.g. "agreety -c sway".
-	The default session is automatically started when no other session is
-	running, such as when user session terminate, and when greetd is initially
-	started with no initial session configured.
+	The command-line that greetd will run to start the default session, e.g.
+	"agreety -c sway". The default session is automatically started when no
+	other session is running, such as when a user session terminates or when
+	greetd is initially started with no initial session configured.
+
+	The command-line is run by *sh*(1), and as such accepts standard POSIX
+	shell syntax.
 
 	See *greetd-ipc*(7) for information on how a greeter can create sessions.
 
@@ -89,9 +92,12 @@ issues whenever greetd or the greeter exit. This is checked through the
 presence of the runfile.
 
 *command* = command-line
-	The command-line to run to start the initial session, e.g. "sway". The
-	initial session will be run when exactly once when greetd is initially
-	launched.
+	The command-line that greetd will run to start the initial session, e.g.
+	"sway". The initial session will be started exactly once when greetd is
+	initially launched.
+
+	The command-line is run by *sh*(1), and as such accepts standard POSIX
+	shell syntax.
 
 *user* = user
 	The user to use for running the initial session.
