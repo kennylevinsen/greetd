@@ -201,7 +201,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
         ),
     ];
 
-    for e in prepared_env.iter().chain(env.iter()) {
+    for e in env.iter().chain(prepared_env.iter()) {
         pam.putenv(e)?;
     }
 
