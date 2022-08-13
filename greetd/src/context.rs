@@ -103,7 +103,7 @@ impl Context {
             }
         }
 
-        scheduled_session.send_args(cmd).await?;
+        scheduled_session.send_args(cmd, vec![]).await?;
         scheduled_session.start().await
     }
 
@@ -253,14 +253,14 @@ impl Context {
     }
 
     /// Schedule the session under configuration with the provided arguments.
-    pub async fn start(&self, cmd: Vec<String>) -> Result<(), Error> {
+    pub async fn start(&self, cmd: Vec<String>, env: Vec<String>) -> Result<(), Error> {
         let mut session = self.inner.write().await.configuring.take();
 
         match &mut session {
             Some(s) => match s.session.get_state().await? {
                 SessionState::Ready => {
                     // Send our arguments to the session.
-                    s.session.send_args(cmd).await?;
+                    s.session.send_args(cmd, env).await?;
 
                     let mut inner = self.inner.write().await;
                     std::mem::swap(&mut session, &mut inner.scheduled);
