@@ -141,6 +141,10 @@ async fn client_handler(ctx: &Context, mut s: UnixStream) -> Result<(), Error> {
             Request::CancelSession => wrap_result(ctx.cancel().await),
         };
 
+        if let Response::Error { .. } = resp {
+            ctx.cancel().await?;
+        }
+
         println!("resp: {:?}", resp);
         resp.write_to(&mut s).await?;
     }
