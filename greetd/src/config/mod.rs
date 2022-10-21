@@ -6,6 +6,8 @@ use getopts::Options;
 use super::error::Error;
 
 const RUNFILE: &str = "/run/greetd.run";
+const GENERAL_SERVICE: &str = "greetd";
+const GREETER_SERVICE: &str = "greetd-greeter";
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum VtSelection {
@@ -25,6 +27,7 @@ impl Default for VtSelection {
 pub struct ConfigSession {
     pub command: String,
     pub user: String,
+    pub service: String,
 }
 
 #[derive(Debug, Eq, PartialEq, Default)]
@@ -42,6 +45,7 @@ pub struct ConfigTerminal {
 pub struct ConfigGeneral {
     pub source_profile: bool,
     pub runfile: String,
+    pub service: String,
 }
 
 impl Default for ConfigGeneral {
@@ -49,6 +53,7 @@ impl Default for ConfigGeneral {
         ConfigGeneral {
             source_profile: true,
             runfile: RUNFILE.to_string(),
+            service: GENERAL_SERVICE.to_string(),
         }
     }
 }
@@ -109,6 +114,7 @@ fn parse_old_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<Confi
         default_session: ConfigSession {
             user: greeter_user,
             command: greeter,
+            service: GREETER_SERVICE.to_string(),
         },
         general: Default::default(),
         initial_session: None,
@@ -116,6 +122,30 @@ fn parse_old_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<Confi
 }
 
 fn parse_new_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<ConfigFile, Error> {
+    let general = match config.get("general") {
+        Some(section) => {
+            let runfilestr = section.get("runfile").unwrap_or(&RUNFILE);
+            let runfile = maybe_unquote(runfilestr)
+                .map_err(|e| format!("unable to read general.runfile: {}", e))?;
+
+            let servicestr = section.get("service").unwrap_or(&GENERAL_SERVICE);
+            let service = maybe_unquote(servicestr)
+                .map_err(|e| format!("unable to read general.service: {}", e))?;
+
+            ConfigGeneral {
+                source_profile: section
+                    .get("source_profile")
+                    .unwrap_or(&"true")
+                    .parse()
+                    .map_err(|e| format!("could not parse source_profile: {}", e))?,
+                runfile,
+                service,
+            }
+        }
+
+        None => Default::default(),
+    };
+
     let default_session = match config.get("default_session") {
         Some(section) => {
             let commandstr = section
@@ -128,7 +158,11 @@ fn parse_new_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<Confi
             let user = maybe_unquote(userstr)
                 .map_err(|e| format!("unable to read default_session.user: {}", e))?;
 
-            Ok(ConfigSession { command, user })
+            let servicestr = section.get("service").unwrap_or(&GREETER_SERVICE);
+            let service = maybe_unquote(servicestr)
+                .map_err(|e| format!("unable to read default_session.service: {}", e))?;
+
+            Ok(ConfigSession { command, user, service })
         }
         None => Err("no default_session specified"),
     }?;
@@ -147,7 +181,12 @@ fn parse_new_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<Confi
             let user = maybe_unquote(userstr)
                 .map_err(|e| format!("unable to read initial_session.user: {}", e))?;
 
-            Some(ConfigSession { command, user })
+            let generalservicestr = general.service.as_str();
+            let servicestr = section.get("service").unwrap_or(&generalservicestr);
+            let service = maybe_unquote(servicestr)
+                .map_err(|e| format!("unable to read initial_session.service: {}", e))?;
+
+            Some(ConfigSession { command, user, service })
         }
         None => None,
     };
@@ -174,25 +213,6 @@ fn parse_new_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<Confi
         }),
         None => Err("no terminal specified"),
     }?;
-
-    let general = match config.get("general") {
-        Some(section) => {
-            let runfilestr = section.get("runfile").unwrap_or(&RUNFILE);
-            let runfile = maybe_unquote(runfilestr)
-                .map_err(|e| format!("unable to read general.runfile: {}", e))?;
-
-            ConfigGeneral {
-                source_profile: section
-                    .get("source_profile")
-                    .unwrap_or(&"true")
-                    .parse()
-                    .map_err(|e| format!("could not parse source_profile: {}", e))?,
-                runfile,
-            }
-        }
-
-        None => Default::default(),
-    };
 
     Ok(ConfigFile {
         initial_session,
