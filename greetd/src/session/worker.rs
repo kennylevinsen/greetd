@@ -171,16 +171,6 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     let uid = Uid::from_raw(user.uid());
     let gid = Gid::from_raw(user.primary_group_id());
 
-    // Change working directory
-    let pwd = match env::set_current_dir(home) {
-        Ok(_) => home,
-        Err(_) => {
-            env::set_current_dir("/")
-                .map_err(|e| format!("unable to set working directory: {}", e))?;
-            "/"
-        }
-    };
-
     // PAM has to be provided a bunch of environment variables before
     // open_session. We pass any environment variables from our greeter
     // through here as well. This allows them to affect PAM (more
@@ -193,7 +183,6 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
         format!("LOGNAME={}", username),
         format!("HOME={}", home),
         format!("SHELL={}", shell),
-        format!("PWD={}", pwd),
         format!("GREETD_SOCK={}", env::var("GREETD_SOCK").unwrap()),
         format!(
             "TERM={}",
@@ -241,6 +230,11 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
             // Set our parent death signal. setuid/setgid above resets the
             // death signal, which is why we do this here.
             prctl(PrctlOption::SET_PDEATHSIG(libc::SIGTERM)).expect("unable to set death signal");
+
+            // Change working directory
+            if let Err(e) = env::set_current_dir(home) {
+                eprintln!("unable to set working directory: {}", e);
+            }
 
             // Run
             let cpath = CString::new("/bin/sh").unwrap();
