@@ -14,8 +14,11 @@ See the [wiki](https://man.sr.ht/~kennylevinsen/greetd) for FAQ, guides for comm
 - [gtkgreet](https://git.sr.ht/~kennylevinsen/gtkgreet) - The flagship graphical, GTK based greeter (xdg-shell or wlr-layer-shell, to be used with something like `sway`)
 - [qtgreet](https://gitlab.com/marcusbritanicus/QtGreet) - Qt-based greeter (using wlr-layer-shell, to be used with something like `sway`)
 - [dlm](https://git.sr.ht/~kennylevinsen/dlm) - Dumb Login Manager (using fbdev)
+- [ddlm](https://github.com/deathowl/ddlm) - Deathowl's dummy login manager (using fbdev)
 - [wlgreet](https://git.sr.ht/~kennylevinsen/wlgreet) - Wayland greeter (using wlr-layer-shell, to be used with something like `sway`)
 - [tuigreet](https://github.com/apognu/tuigreet) - Console UI greeter (using tui-rs)
+
+Patches expanding the list welcome.
 
 ## Installation
 
