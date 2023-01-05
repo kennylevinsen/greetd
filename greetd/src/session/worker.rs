@@ -264,7 +264,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     // Wait for process to terminate, handling EINTR as necessary.
     loop {
         match waitpid(child, None) {
-            Err(nix::Error::Sys(nix::errno::Errno::EINTR)) => continue,
+            Err(nix::errno::Errno::EINTR) => continue,
             Err(e) => {
                 eprintln!("session: waitpid on inner child failed: {}", e);
                 break;

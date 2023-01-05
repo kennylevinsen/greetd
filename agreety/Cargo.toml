@@ -12,5 +12,5 @@ greetd_ipc = { path = "../greetd_ipc", features = ["sync-codec"]}
 inish = { path = "../inish"}
 rpassword = "5.0"
 getopts = "0.2"
-enquote = "1.0.3"
-nix = "0.20"
+enquote = "1.1"
+nix = "0.26"

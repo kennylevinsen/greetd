@@ -375,10 +375,10 @@ impl Context {
                 Ok(_) => continue,
 
                 // Interrupted.
-                Err(nix::Error::Sys(nix::errno::Errno::EINTR)) => continue,
+                Err(nix::errno::Errno::EINTR) => continue,
 
                 // We do not have any children right now.
-                Err(nix::Error::Sys(nix::errno::Errno::ECHILD)) => break Ok(()),
+                Err(nix::errno::Errno::ECHILD) => break Ok(()),
 
                 // Uh, what?
                 Err(e) => panic!("waitpid returned an unexpected error: {}", e),

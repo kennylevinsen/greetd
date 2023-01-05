@@ -39,18 +39,18 @@ fn get_issue() -> Result<String, Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "0".to_string())
         .parse()
         .expect("unable to parse VTNR");
-    let uts = uname();
+    let uts = uname()?;
     Ok(fs::read_to_string("/etc/issue")?
         .replace(
             "\\S",
             &get_distro_name().unwrap_or_else(|_| "Linux".to_string()),
         )
         .replace("\\l", &format!("tty{}", vtnr))
-        .replace("\\s", &uts.sysname())
-        .replace("\\r", &uts.release())
-        .replace("\\v", &uts.version())
-        .replace("\\n", &uts.nodename())
-        .replace("\\m", &uts.machine())
+        .replace("\\s", &uts.sysname().to_str().unwrap())
+        .replace("\\r", &uts.release().to_str().unwrap())
+        .replace("\\v", &uts.version().to_str().unwrap())
+        .replace("\\n", &uts.nodename().to_str().unwrap())
+        .replace("\\m", &uts.machine().to_str().unwrap())
         .replace("\\\\", "\\"))
 }
 
@@ -171,9 +171,9 @@ fn main() {
         print!("{}", issue);
     }
 
-    let uts = uname();
+    let uts = uname().unwrap();
     for _ in 0..max_failures {
-        match login(uts.nodename(), &mut cmd) {
+        match login(uts.nodename().to_str().unwrap(), &mut cmd) {
             Ok(LoginResult::Success) => break,
             Ok(LoginResult::Failure) => eprintln!("Login incorrect\n"),
             Err(e) => {

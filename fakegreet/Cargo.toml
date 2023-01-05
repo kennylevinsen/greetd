@@ -10,5 +10,5 @@ repository = "https://git.sr.ht/~kennylevinsen/greetd/"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 greetd_ipc = { path = "../greetd_ipc", features = ["tokio-codec"] }
-tokio = { version = "1.5", features = ["process"] }
+tokio = { version = "1.5", features = ["process", "macros", "time", "net", "rt"] }
 thiserror = "1.0"
