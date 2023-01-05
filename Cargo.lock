@@ -4,7 +4,7 @@ version = 3
 
 [[package]]
 name = "agreety"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "enquote",
  "getopts",
@@ -60,7 +60,7 @@ dependencies = [
 
 [[package]]
 name = "fakegreet"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "greetd_ipc",
  "serde",
@@ -79,7 +79,7 @@ dependencies = [
 
 [[package]]
 name = "greetd"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "async-trait",
  "enquote",
@@ -98,7 +98,7 @@ dependencies = [
 
 [[package]]
 name = "greetd_ipc"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "async-trait",
  "serde",
