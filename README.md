@@ -17,6 +17,7 @@ See the [wiki](https://man.sr.ht/~kennylevinsen/greetd) for FAQ, guides for comm
 - [ddlm](https://github.com/deathowl/ddlm) - Deathowl's dummy login manager (using fbdev)
 - [wlgreet](https://git.sr.ht/~kennylevinsen/wlgreet) - Wayland greeter (using wlr-layer-shell, to be used with something like `sway`)
 - [tuigreet](https://github.com/apognu/tuigreet) - Console UI greeter (using tui-rs)
+- [ReGreet](https://github.com/rharish101/ReGreet) - Clean and customizable GTK4 based greeter (to be used with something like `sway`)
 
 Patches expanding the list welcome.
 
