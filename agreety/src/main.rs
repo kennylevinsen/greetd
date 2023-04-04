@@ -22,7 +22,7 @@ fn prompt_stderr(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     let stdin = io::stdin();
     let mut stdin_iter = stdin.lock().lines();
     eprint!("{}", prompt);
-    Ok(stdin_iter.next().unwrap()?)
+    Ok(stdin_iter.next().ok_or("no input")??)
 }
 
 fn get_distro_name() -> Result<String, Box<dyn std::error::Error>> {
