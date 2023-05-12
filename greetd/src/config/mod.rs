@@ -162,7 +162,11 @@ fn parse_new_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<Confi
             let service = maybe_unquote(servicestr)
                 .map_err(|e| format!("unable to read default_session.service: {}", e))?;
 
-            Ok(ConfigSession { command, user, service })
+            Ok(ConfigSession {
+                command,
+                user,
+                service,
+            })
         }
         None => Err("no default_session specified"),
     }?;
@@ -186,7 +190,11 @@ fn parse_new_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<Confi
             let service = maybe_unquote(servicestr)
                 .map_err(|e| format!("unable to read initial_session.service: {}", e))?;
 
-            Some(ConfigSession { command, user, service })
+            Some(ConfigSession {
+                command,
+                user,
+                service,
+            })
         }
         None => None,
     };
@@ -332,6 +340,7 @@ greeter_user = \"greeter\"
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
                     user: "greeter".to_string(),
+                    service: "greetd-greeter".to_string(),
                 },
                 general: Default::default(),
                 initial_session: None,
@@ -355,6 +364,7 @@ greeter = \"agreety\"
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
                     user: "greeter".to_string(),
+                    service: "greetd-greeter".to_string(),
                 },
                 general: Default::default(),
                 initial_session: None,
@@ -383,6 +393,7 @@ command = \"agreety\"
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
                     user: "greeter".to_string(),
+                    service: "greetd-greeter".to_string(),
                 },
                 general: Default::default(),
                 initial_session: None,
@@ -411,11 +422,13 @@ user = \"john\"
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
                     user: "greeter".to_string(),
+                    service: "greetd-greeter".to_string(),
                 },
                 general: Default::default(),
                 initial_session: Some(ConfigSession {
                     command: "sway".to_string(),
                     user: "john".to_string(),
+                    service: "greetd".to_string(),
                 }),
             }
         );
@@ -442,10 +455,12 @@ runfile = \"/path/to/greetd.state\"
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
                     user: "greeter".to_string(),
+                    service: "greetd-greeter".to_string(),
                 },
                 general: ConfigGeneral {
                     source_profile: false,
                     runfile: "/path/to/greetd.state".to_string(),
+                    service: "greetd".to_string(),
                 },
                 initial_session: None,
             }
@@ -484,6 +499,7 @@ vt = 1
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
                     user: "greeter".to_string(),
+                    service: "greetd-greeter".to_string(),
                 },
                 general: Default::default(),
                 initial_session: None,
@@ -507,6 +523,7 @@ vt = next
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
                     user: "greeter".to_string(),
+                    service: "greetd-greeter".to_string(),
                 },
                 general: Default::default(),
                 initial_session: None,
@@ -530,6 +547,7 @@ vt = current
                 default_session: ConfigSession {
                     command: "agreety".to_string(),
                     user: "greeter".to_string(),
+                    service: "greetd-greeter".to_string(),
                 },
                 general: Default::default(),
                 initial_session: None,
