@@ -221,15 +221,12 @@ pub async fn main(config: Config) -> Result<(), Error> {
         service
     };
 
-    let u = users::get_user_by_name(&config.file.default_session.user).ok_or(format!(
+    let u = nix::unistd::User::from_name(&config.file.default_session.user)?.ok_or(format!(
         "configured default session user '{}' not found",
         &config.file.default_session.user
     ))?;
 
-    let uid = Uid::from_raw(u.uid());
-    let gid = Gid::from_raw(u.primary_group_id());
-
-    let (listener_path, listener) = Listener::create(uid, gid)?;
+    let (listener_path, listener) = Listener::create(u.uid, u.gid)?;
 
     let term_mode = get_tty(&config)?;
 

@@ -2,11 +2,10 @@ use std::{env, ffi::CString, os::unix::net::UnixDatagram};
 
 use nix::{
     sys::wait::waitpid,
-    unistd::{execve, fork, initgroups, setgid, setsid, setuid, ForkResult, Gid, Uid},
+    unistd::{execve, fork, initgroups, setgid, setsid, setuid, ForkResult},
 };
 use pam_sys::{PamFlag, PamItemType};
 use serde::{Deserialize, Serialize};
-use users::os::unix::UserExt;
 
 use super::{
     conv::SessionConv,
@@ -162,7 +161,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
 
     let pam_username = pam.get_user()?;
 
-    let user = users::get_user_by_name(&pam_username).ok_or("unable to get user info")?;
+    let user = nix::unistd::User::from_name(&pam_username)?.ok_or("unable to get user info")?;
 
     // Make this process a session leader.
     setsid().map_err(|e| format!("unable to become session leader: {}", e))?;
@@ -198,13 +197,6 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
         }
     }
 
-    // Prepare some values from the user struct we gathered earlier.
-    let username = user.name().to_str().unwrap_or("");
-    let home = user.home_dir().to_str().unwrap_or("");
-    let shell = user.shell().to_str().unwrap_or("");
-    let uid = Uid::from_raw(user.uid());
-    let gid = Gid::from_raw(user.primary_group_id());
-
     // PAM has to be provided a bunch of environment variables before
     // open_session. We pass any environment variables from our greeter
     // through here as well. This allows them to affect PAM (more
@@ -213,10 +205,10 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     let prepared_env = [
         "XDG_SEAT=seat0".to_string(),
         format!("XDG_SESSION_CLASS={}", class.as_str()),
-        format!("USER={}", username),
-        format!("LOGNAME={}", username),
-        format!("HOME={}", home),
-        format!("SHELL={}", shell),
+        format!("USER={}", user.name),
+        format!("LOGNAME={}", user.name),
+        format!("HOME={}", user.dir.to_string_lossy()),
+        format!("SHELL={}", user.shell.to_string_lossy()),
         format!(
             "TERM={}",
             env::var("TERM").unwrap_or_else(|_| "linux".to_string())
@@ -236,7 +228,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     }
 
     // Prepare some strings in C format that we'll need.
-    let cusername = CString::new(username)?;
+    let cusername = CString::new(user.name)?;
     let command = if source_profile {
         format!(
             "[ -f /etc/profile ] && . /etc/profile; [ -f $HOME/.profile ] && . $HOME/.profile; exec {}",
@@ -261,16 +253,16 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
             // this match arm.
 
             // Drop privileges to target user
-            initgroups(&cusername, gid).expect("unable to init groups");
-            setgid(gid).expect("unable to set GID");
-            setuid(uid).expect("unable to set UID");
+            initgroups(&cusername, user.gid).expect("unable to init groups");
+            setgid(user.gid).expect("unable to set GID");
+            setuid(user.uid).expect("unable to set UID");
 
             // Set our parent death signal. setuid/setgid above resets the
             // death signal, which is why we do this here.
             prctl(PrctlOption::SET_PDEATHSIG(libc::SIGTERM)).expect("unable to set death signal");
 
             // Change working directory
-            if let Err(e) = env::set_current_dir(home) {
+            if let Err(e) = env::set_current_dir(user.dir) {
                 eprintln!("unable to set working directory: {}", e);
             }
 
