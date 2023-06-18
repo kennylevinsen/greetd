@@ -29,9 +29,7 @@ fn get_distro_name() -> Result<String, Box<dyn std::error::Error>> {
     let os_release = fs::read_to_string("/etc/os-release")?;
     let parsed = inish::parse(&os_release)?;
     let general = parsed.get("").ok_or("no general section")?;
-    Ok(maybe_unquote(
-        general.get("PRETTY_NAME").ok_or("no pretty name")?,
-    )?)
+    maybe_unquote(general.get("PRETTY_NAME").ok_or("no pretty name")?)
 }
 
 fn get_issue() -> Result<String, Box<dyn std::error::Error>> {
