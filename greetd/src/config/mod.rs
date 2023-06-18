@@ -9,18 +9,13 @@ const RUNFILE: &str = "/run/greetd.run";
 const GENERAL_SERVICE: &str = "greetd";
 const GREETER_SERVICE: &str = "greetd-greeter";
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Default)]
 pub enum VtSelection {
     Next,
     Current,
+    #[default]
     None,
     Specific(usize),
-}
-
-impl Default for VtSelection {
-    fn default() -> Self {
-        VtSelection::None
-    }
 }
 
 #[derive(Debug, Eq, PartialEq, Default)]
