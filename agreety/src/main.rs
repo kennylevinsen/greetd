@@ -60,9 +60,9 @@ enum LoginResult {
 fn login(node: &str, cmd: &mut Option<String>) -> Result<LoginResult, Box<dyn std::error::Error>> {
     let username = loop {
         let username = prompt_stderr(&format!("{} login: ", node))?;
-        if username.starts_with('!') {
-            *cmd = Some(username[1..].to_string());
-            eprintln!("Login command changed to: {}", &username[1..]);
+        if let Some(u) = username.strip_prefix('!') {
+            *cmd = Some(u.to_string());
+            eprintln!("Login command changed to: {u}");
             continue;
         }
         break username;
