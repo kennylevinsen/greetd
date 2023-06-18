@@ -128,12 +128,12 @@ async fn client_handler(ctx: &Context, mut s: UnixStream) -> Result<(), Error> {
         println!("req: {:?}", req);
         let resp = match req {
             Request::CreateSession { username } => match ctx.create_session(username).await {
-                Ok(()) => client_get_question(&ctx).await,
+                Ok(()) => client_get_question(ctx).await,
                 res => wrap_result(res),
             },
             Request::PostAuthMessageResponse { response } => {
                 match ctx.post_response(response).await {
-                    Ok(()) => client_get_question(&ctx).await,
+                    Ok(()) => client_get_question(ctx).await,
                     res => wrap_result(res),
                 }
             }

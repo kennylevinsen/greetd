@@ -44,11 +44,11 @@ fn get_issue() -> Result<String, Box<dyn std::error::Error>> {
             &get_distro_name().unwrap_or_else(|_| "Linux".to_string()),
         )
         .replace("\\l", &format!("tty{}", vtnr))
-        .replace("\\s", &uts.sysname().to_str().unwrap())
-        .replace("\\r", &uts.release().to_str().unwrap())
-        .replace("\\v", &uts.version().to_str().unwrap())
-        .replace("\\n", &uts.nodename().to_str().unwrap())
-        .replace("\\m", &uts.machine().to_str().unwrap())
+        .replace("\\s", uts.sysname().to_str().unwrap())
+        .replace("\\r", uts.release().to_str().unwrap())
+        .replace("\\v", uts.version().to_str().unwrap())
+        .replace("\\n", uts.nodename().to_str().unwrap())
+        .replace("\\m", uts.machine().to_str().unwrap())
         .replace("\\\\", "\\"))
 }
 

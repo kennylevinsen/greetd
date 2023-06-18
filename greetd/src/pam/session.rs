@@ -29,7 +29,7 @@ impl<'a> PamSession<'a> {
         pam_conv: Pin<Box<dyn Converse + 'a>>,
     ) -> Result<PamSession<'a>, PamError> {
         let mut pch = Box::pin(PamConvHandlerWrapper { handler: pam_conv });
-        let conv = make_conversation(&mut *pch);
+        let conv = make_conversation(&mut pch);
         let mut pam_handle: *mut PamHandle = ptr::null_mut();
 
         match pam_sys::start(service, Some(user), &conv, &mut pam_handle) {

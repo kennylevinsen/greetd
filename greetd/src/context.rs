@@ -90,7 +90,7 @@ impl Context {
         let mut scheduled_session = Session::new_external()?;
         scheduled_session
             .initiate(
-                &service,
+                service,
                 class,
                 user,
                 false,

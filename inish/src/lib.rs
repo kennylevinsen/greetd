@@ -31,7 +31,7 @@ pub fn parse<'a>(s: &'a str) -> Result<Inish<'a>, Box<dyn Error>> {
                 sections.insert(current_section_name, current_section);
                 current_section = HashMap::new();
                 let len = line.bytes().count();
-                current_section_name = &line[1..len - 1].trim();
+                current_section_name = line[1..len - 1].trim();
             }
             (Some('['), v) => {
                 return Err(format!(
