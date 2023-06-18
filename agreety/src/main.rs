@@ -146,7 +146,7 @@ fn main() {
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(f) => {
-            println!("{}", f.to_string());
+            println!("{}", f);
             print_usage(&program, opts);
             std::process::exit(1);
         }
