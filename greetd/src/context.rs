@@ -14,7 +14,7 @@ use crate::{
     error::Error,
     session::{
         interface::{Session, SessionChild, SessionState},
-        worker::{AuthMessageType as SessAuthMessageType, TerminalMode},
+        worker::{AuthMessageType as SessAuthMessageType, SessionClass, TerminalMode},
     },
 };
 use greetd_ipc::AuthMessageType;
@@ -46,6 +46,7 @@ pub struct Context {
     term_mode: TerminalMode,
     source_profile: bool,
     runfile: String,
+    listener_path: String,
 }
 
 impl Context {
@@ -57,6 +58,7 @@ impl Context {
         term_mode: TerminalMode,
         source_profile: bool,
         runfile: String,
+        listener_path: String,
     ) -> Context {
         Context {
             inner: RwLock::new(ContextInner {
@@ -71,6 +73,7 @@ impl Context {
             term_mode,
             source_profile,
             runfile,
+            listener_path,
         }
     }
 
@@ -79,7 +82,7 @@ impl Context {
     /// be used while it is held.
     async fn start_unauthenticated_session(
         &self,
-        class: &str,
+        class: SessionClass,
         user: &str,
         service: &str,
         cmd: Vec<String>,
@@ -93,6 +96,7 @@ impl Context {
                 false,
                 &self.term_mode,
                 self.source_profile,
+                &self.listener_path,
             )
             .await?;
         loop {
@@ -112,7 +116,7 @@ impl Context {
     /// held.
     async fn start_greeter(&self) -> Result<SessionChild, Error> {
         self.start_unauthenticated_session(
-            "greeter",
+            SessionClass::Greeter,
             &self.greeter_user,
             &self.greeter_service,
             vec![self.greeter_bin.to_string()],
@@ -162,7 +166,7 @@ impl Context {
         let mut inner = self.inner.write().await;
         inner.current = Some(SessionChildSet {
             child: self
-                .start_unauthenticated_session("user", user, &self.pam_service, cmd)
+                .start_unauthenticated_session(SessionClass::User, user, &self.pam_service, cmd)
                 .await?,
             time: Instant::now(),
             is_greeter: false,
@@ -193,11 +197,12 @@ impl Context {
             .session
             .initiate(
                 &self.pam_service,
-                "user",
+                SessionClass::User,
                 &username,
                 true,
                 &self.term_mode,
                 self.source_profile,
+                &self.listener_path,
             )
             .await?;
 

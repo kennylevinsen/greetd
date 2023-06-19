@@ -33,14 +33,30 @@ pub enum TerminalMode {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ParentToSessionChild {
+pub enum SessionClass {
+    Greeter,
+    User,
+}
+
+impl SessionClass {
+    fn as_str(&self) -> &str {
+        match self {
+            SessionClass::Greeter => "greeter",
+            SessionClass::User => "user",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ParentToSessionChild<'a> {
     InitiateLogin {
-        service: String,
-        class: String,
-        user: String,
+        service: &'a str,
+        class: SessionClass,
+        user: &'a str,
         authenticate: bool,
         tty: TerminalMode,
         source_profile: bool,
+        listener_path: &'a str,
     },
     PamResponse {
         resp: Option<String>,
@@ -53,9 +69,11 @@ pub enum ParentToSessionChild {
     Cancel,
 }
 
-impl ParentToSessionChild {
-    pub fn recv(sock: &UnixDatagram) -> Result<ParentToSessionChild, Error> {
-        let mut data = [0; 10240];
+impl<'a> ParentToSessionChild<'a> {
+    pub fn recv(
+        sock: &UnixDatagram,
+        data: &'a mut [u8; 10240],
+    ) -> Result<ParentToSessionChild<'a>, Error> {
         let len = sock.recv(&mut data[..])?;
         let msg = serde_json::from_slice(&data[..len])?;
         Ok(msg)
@@ -82,8 +100,9 @@ impl SessionChildToParent {
 /// responsible for the entirety of the session setup and execution. It is
 /// started by Session::start.
 fn worker(sock: &UnixDatagram) -> Result<(), Error> {
-    let (service, class, user, authenticate, tty, source_profile) =
-        match ParentToSessionChild::recv(sock)? {
+    let mut data = [0; 10240];
+    let (service, class, user, authenticate, tty, source_profile, listener_path) =
+        match ParentToSessionChild::recv(sock, &mut data)? {
             ParentToSessionChild::InitiateLogin {
                 service,
                 class,
@@ -91,13 +110,22 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
                 authenticate,
                 tty,
                 source_profile,
-            } => (service, class, user, authenticate, tty, source_profile),
+                listener_path,
+            } => (
+                service,
+                class,
+                user,
+                authenticate,
+                tty,
+                source_profile,
+                listener_path,
+            ),
             ParentToSessionChild::Cancel => return Err("cancelled".into()),
             msg => return Err(format!("expected InitiateLogin or Cancel, got: {:?}", msg).into()),
         };
 
     let conv = Box::pin(SessionConv::new(sock));
-    let mut pam = PamSession::start(&service, &user, conv)?;
+    let mut pam = PamSession::start(service, user, conv)?;
 
     if authenticate {
         pam.authenticate(PamFlag::NONE)?;
@@ -110,8 +138,14 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     // Mark authentication as a success.
     SessionChildToParent::Success.send(sock)?;
 
+    // Add GREETD_SOCK if this is a greeter session - we do this early as we are about to reuse the
+    // buffer, invalidating our borrow.
+    if let SessionClass::Greeter = class {
+        pam.putenv(&format!("GREETD_SOCK={}", &listener_path))?;
+    }
+
     // Fetch our arguments from the parent.
-    let (env, cmd) = match ParentToSessionChild::recv(sock)? {
+    let (env, cmd) = match ParentToSessionChild::recv(sock, &mut data)? {
         ParentToSessionChild::Args { env, cmd } => (env, cmd),
         ParentToSessionChild::Cancel => return Err("cancelled".into()),
         msg => return Err(format!("expected Args or Cancel, got: {:?}", msg).into()),
@@ -120,7 +154,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     SessionChildToParent::Success.send(sock)?;
 
     // Await start request from our parent.
-    match ParentToSessionChild::recv(sock)? {
+    match ParentToSessionChild::recv(sock, &mut data)? {
         ParentToSessionChild::Start => (),
         ParentToSessionChild::Cancel => return Err("cancelled".into()),
         msg => return Err(format!("expected Start or Cancel, got: {:?}", msg).into()),
@@ -178,24 +212,28 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     // and set all environment variables later.
     let prepared_env = [
         "XDG_SEAT=seat0".to_string(),
-        format!("XDG_SESSION_CLASS={}", class),
+        format!("XDG_SESSION_CLASS={}", class.as_str()),
         format!("USER={}", username),
         format!("LOGNAME={}", username),
         format!("HOME={}", home),
         format!("SHELL={}", shell),
-        format!("GREETD_SOCK={}", env::var("GREETD_SOCK").unwrap()),
         format!(
             "TERM={}",
             env::var("TERM").unwrap_or_else(|_| "linux".to_string())
         ),
     ];
-
     for e in env.iter().chain(prepared_env.iter()) {
         pam.putenv(e)?;
     }
 
     // Session time!
     pam.open_session(PamFlag::NONE)?;
+
+    // We are done with PAM, clear variables that the child will not need.
+    let cleared_env = ["XDG_SESSION_CLASS", "XDG_VTNR"];
+    for e in cleared_env.iter() {
+        _ = pam.putenv(e);
+    }
 
     // Prepare some strings in C format that we'll need.
     let cusername = CString::new(username)?;

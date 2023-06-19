@@ -174,15 +174,14 @@ fn get_tty(config: &Config) -> Result<TerminalMode, Error> {
 struct Listener(UnixListener);
 
 impl Listener {
-    fn create(uid: Uid, gid: Gid) -> Result<Listener, Error> {
+    fn create(uid: Uid, gid: Gid) -> Result<(String, Listener), Error> {
         let path = format!("/run/greetd-{}.sock", getpid().as_raw());
         let _ = std::fs::remove_file(&path);
         let listener =
             UnixListener::bind(&path).map_err(|e| format!("unable to open listener: {}", e))?;
         chown(path.as_str(), Some(uid), Some(gid))
             .map_err(|e| format!("unable to chown greetd socket at {}: {}", path, e))?;
-        std::env::set_var("GREETD_SOCK", path);
-        Ok(Listener(listener))
+        Ok((path, Listener(listener)))
     }
 }
 
@@ -230,7 +229,7 @@ pub async fn main(config: Config) -> Result<(), Error> {
     let uid = Uid::from_raw(u.uid());
     let gid = Gid::from_raw(u.primary_group_id());
 
-    let listener = Listener::create(uid, gid)?;
+    let (listener_path, listener) = Listener::create(uid, gid)?;
 
     let term_mode = get_tty(&config)?;
 
@@ -246,6 +245,7 @@ pub async fn main(config: Config) -> Result<(), Error> {
         term_mode.clone(),
         config.file.general.source_profile,
         config.file.general.runfile,
+        listener_path,
     ));
 
     if let (Some(s), true) = (config.file.initial_session, ctx.is_first_run()) {

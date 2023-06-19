@@ -25,7 +25,7 @@ pub struct PamSession<'a> {
 impl<'a> PamSession<'a> {
     pub fn start(
         service: &str,
-        user: &'a str,
+        user: &str,
         pam_conv: Pin<Box<dyn Converse + 'a>>,
     ) -> Result<PamSession<'a>, PamError> {
         let mut pch = Box::pin(PamConvHandlerWrapper { handler: pam_conv });

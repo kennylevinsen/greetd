@@ -9,6 +9,7 @@ pub struct SessionConv<'a> {
 
 impl<'a> SessionConv<'a> {
     fn question(&self, msg: &str, style: AuthMessageType) -> Result<Option<String>, ()> {
+        let mut data = [0; 10240];
         let msg = SessionChildToParent::PamMessage {
             style,
             msg: msg.to_string(),
@@ -16,8 +17,8 @@ impl<'a> SessionConv<'a> {
         msg.send(self.sock)
             .map_err(|e| eprintln!("pam_conv: {}", e))?;
 
-        let msg =
-            ParentToSessionChild::recv(self.sock).map_err(|e| eprintln!("pam_conv: {}", e))?;
+        let msg = ParentToSessionChild::recv(self.sock, &mut data)
+            .map_err(|e| eprintln!("pam_conv: {}", e))?;
 
         match msg {
             ParentToSessionChild::PamResponse { resp, .. } => Ok(resp),

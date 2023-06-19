@@ -13,7 +13,9 @@ use async_trait::async_trait;
 
 use tokio::net::UnixDatagram as TokioUnixDatagram;
 
-use super::worker::{AuthMessageType, ParentToSessionChild, SessionChildToParent, TerminalMode};
+use super::worker::{
+    AuthMessageType, ParentToSessionChild, SessionChildToParent, SessionClass, TerminalMode,
+};
 use crate::error::Error;
 
 #[async_trait]
@@ -27,7 +29,7 @@ trait AsyncSend {
 }
 
 #[async_trait]
-impl AsyncSend for ParentToSessionChild {
+impl<'a> AsyncSend for ParentToSessionChild<'a> {
     async fn send(&self, sock: &mut TokioUnixDatagram) -> Result<(), Error> {
         let out =
             serde_json::to_vec(self).map_err(|e| format!("unable to serialize message: {}", e))?;
@@ -133,19 +135,21 @@ impl Session {
     pub async fn initiate(
         &mut self,
         service: &str,
-        class: &str,
+        class: SessionClass,
         user: &str,
         authenticate: bool,
         term_mode: &TerminalMode,
         source_profile: bool,
+        listener_path: &str,
     ) -> Result<(), Error> {
         let msg = ParentToSessionChild::InitiateLogin {
-            service: service.to_string(),
-            class: class.to_string(),
-            user: user.to_string(),
+            service: service,
+            class: class,
+            user: user,
             authenticate,
             tty: term_mode.clone(),
             source_profile,
+            listener_path: listener_path,
         };
         msg.send(&mut self.sock).await?;
         Ok(())
