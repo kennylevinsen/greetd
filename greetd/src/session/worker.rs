@@ -194,6 +194,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
             // Connect std(in|out|err), and make this our controlling TTY.
             target_term.term_connect_pipes()?;
             target_term.term_take_ctty()?;
+            target_term.term_chown(user.uid, user.gid)?;
         }
     }
 

@@ -4,7 +4,7 @@ use crate::error::Error;
 use nix::{
     fcntl::{open, OFlag},
     sys::stat::Mode,
-    unistd::{close, dup2, write},
+    unistd::{close, dup2, fchown, write, Gid, Uid},
 };
 use std::{ffi::CStr, os::unix::io::RawFd};
 
@@ -232,6 +232,15 @@ impl Terminal {
 
         match res {
             Err(e) => Err(format!("terminal: unable to take controlling terminal: {}", e).into()),
+            Ok(_) => Ok(()),
+        }
+    }
+
+    pub fn term_chown(&self, owner: Uid, group: Gid) -> Result<(), Error> {
+        let res = fchown(self.fd, Some(owner), Some(group));
+
+        match res {
+            Err(e) => Err(format!("terminal: unable to set ownership of terminal: {}", e).into()),
             Ok(_) => Ok(()),
         }
     }
