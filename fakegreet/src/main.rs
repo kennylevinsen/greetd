@@ -151,12 +151,18 @@ async fn client_handler(ctx: &Context, mut s: UnixStream) -> Result<(), Error> {
 }
 
 pub async fn server() -> Result<(), Error> {
-    let path = "./greetd.sock";
-    std::env::set_var("GREETD_SOCK", path);
+    let mut path = env::current_dir()?;
+    let current_dir = format!(
+        "{}/greetd.sock",
+        std::fs::canonicalize(&path).unwrap().to_str().unwrap(),
+    );
+    path.push("greetd.sock");
 
-    let _ = std::fs::remove_file(path);
+    std::env::set_var("GREETD_SOCK", &current_dir);
+
+    let _ = std::fs::remove_file(&path);
     let listener =
-        UnixListener::bind(path).map_err(|e| format!("unable to open listener: {}", e))?;
+        UnixListener::bind(&path).map_err(|e| format!("unable to open listener: {}", e))?;
 
     let arg = env::args().nth(1).expect("need argument");
     let _ = Command::new("sh").arg("-c").arg(arg).spawn()?;
