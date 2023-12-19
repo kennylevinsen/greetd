@@ -1,0 +1,9 @@
+#!/bin/sh
+
+for i in "~/.local/share/wayland-sessions" "/usr/local/share/wayland-sessions" "/usr/share/wayland-sessions"
+do
+	if [ -d "$i" ]
+	then
+		find $i -type f -name "*.desktop" -exec basename -s ".desktop" {} \;
+	fi
+done

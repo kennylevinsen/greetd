@@ -1,0 +1,9 @@
+#!/bin/sh
+
+for i in "~/.local/share/xsessions" "/usr/local/share/xsessions" "/usr/share/xsessions"
+do
+	if [ -d "$i" ]
+	then
+		find $i -type f -name "*.desktop" -exec basename -s ".desktop" {} \;
+	fi
+done

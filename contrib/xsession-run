@@ -1,0 +1,28 @@
+#!/bin/sh
+
+for i in "~/.local/share/xsessions" "/usr/local/share/xsessions" "/usr/share/xsessions"
+do
+	if [ -e "$i/$1.desktop" ]
+	then
+		cmdline="`awk -F'=' '/^Exec=/ { print $2 }' "$i/$1.desktop"`"
+		break
+	fi
+done
+
+if [ -z "$cmdline" ]
+then
+	echo "No such X session"
+	exit 1
+fi
+
+# xinit only treats the argument as a program if it is an absolute path,
+# otherwise it considers it an argument to xinitrc. To ensure that the command
+# line starts with an absolute program path, split it and resolve the program.
+prog="`echo "$cmdline" | cut -d' ' -f1`"
+if [ "$prog" != "$cmdline" ]
+then
+	args="`echo "$cmdline" | cut -d' ' -f2-`"
+fi
+prog="`type -P "$prog"`"
+
+exec xinit "$prog" $args

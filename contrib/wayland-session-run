@@ -1,0 +1,17 @@
+#!/bin/sh
+
+for i in "~/.local/share/wayland-sessions" "/usr/local/share/wayland-sessions" "/usr/share/wayland-sessions"
+do
+	if [ -e "$i/$1.desktop" ]
+	then
+		cmdline="`awk -F'=' '/^Exec=/ { print $2 }' "$i/$1.desktop"`"
+		break
+	fi
+done
+
+if [ -z "$cmdline" ]
+then
+	echo "No such wayland session"
+	exit 1
+fi
+exec $cmdline
