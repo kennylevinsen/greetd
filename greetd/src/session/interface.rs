@@ -99,8 +99,7 @@ impl Session {
             UnixDatagram::pair().map_err(|e| format!("could not create pipe: {}", e))?;
 
         let raw_child = childfd.as_raw_fd();
-        let mut cur_flags =
-            unsafe { FdFlag::from_bits_unchecked(fcntl(raw_child, FcntlArg::F_GETFD)?) };
+        let mut cur_flags = FdFlag::from_bits_retain(fcntl(raw_child, FcntlArg::F_GETFD)?);
         cur_flags.remove(FdFlag::FD_CLOEXEC);
         fcntl(raw_child, FcntlArg::F_SETFD(cur_flags))?;
 
