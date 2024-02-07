@@ -198,24 +198,23 @@ impl Drop for Listener {
 }
 
 pub async fn main(config: Config) -> Result<(), Error> {
-    let service = if Path::new(&format!("/usr/lib/pam.d/{}", config.file.general.service)).exists()
-    {
+    let service = if Path::new(&format!("/etc/pam.d/{}", config.file.general.service)).exists() {
         &config.file.general.service
-    } else if Path::new(&format!("/etc/pam.d/{}", config.file.general.service)).exists() {
+    } else if Path::new(&format!("/usr/lib/pam.d/{}", config.file.general.service)).exists() {
         &config.file.general.service
     } else {
         return Err(format!("PAM '{}' service missing", config.file.general.service).into());
     };
 
     let greeter_service = if Path::new(&format!(
-        "/usr/lib/pam.d/{}",
+        "/etc/pam.d/{}",
         config.file.default_session.service
     ))
     .exists()
     {
         &config.file.default_session.service
     } else if Path::new(&format!(
-        "/etc/pam.d/{}",
+        "/usr/lib/pam.d/{}",
         config.file.default_session.service
     ))
     .exists()
