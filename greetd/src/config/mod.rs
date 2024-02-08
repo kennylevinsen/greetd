@@ -1,4 +1,4 @@
-use std::{collections::HashMap, default::Default, env, fs::read_to_string, str::FromStr};
+use std::{default::Default, env, fs::read_to_string, str::FromStr};
 
 use enquote::unquote;
 use getopts::Options;
@@ -96,35 +96,8 @@ fn maybe_unquote(s: &str) -> Result<String, Error> {
     })
 }
 
-fn parse_old_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<ConfigFile, Error> {
-    let general = config.get("").ok_or("no general section")?;
-
-    let greeterstr = general
-        .get("greeter")
-        .ok_or("unable to parse configuration file: no greeter specified")?;
-    let greeter = maybe_unquote(greeterstr)?;
-
-    let greeter_userstr = general.get("greeter_user").unwrap_or(&"greeter");
-    let greeter_user = maybe_unquote(greeter_userstr)?;
-
-    let vtstr = general
-        .get("vt")
-        .ok_or("unable to parse configuration file: no VT specified")?;
-    let vt: VtSelection = maybe_unquote(vtstr)?.as_str().parse()?;
-
-    Ok(ConfigFile {
-        terminal: ConfigTerminal { vt, switch: true },
-        default_session: ConfigSession {
-            user: greeter_user,
-            command: greeter,
-            service: GREETER_SERVICE.to_string(),
-        },
-        general: Default::default(),
-        initial_session: None,
-    })
-}
-
-fn parse_new_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<ConfigFile, Error> {
+fn parse_config(config_str: &str) -> Result<ConfigFile, Error> {
+    let config = inish::parse(config_str)?;
     let general = match config.get("general") {
         Some(section) => {
             let runfilestr = section.get("runfile").unwrap_or(&RUNFILE);
@@ -225,23 +198,6 @@ fn parse_new_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<Confi
     })
 }
 
-fn parse_config(config_str: &str) -> Result<ConfigFile, Error> {
-    let config_ini = inish::parse(config_str)?;
-    match parse_new_config(&config_ini) {
-        Ok(v) => Ok(v),
-        Err(e) => match parse_old_config(&config_ini) {
-            Ok(v) => {
-                eprintln!("warning: Fallback to old config format, caused by : {}", e);
-                Ok(v)
-            }
-            Err(_e) => Err(Error::ConfigError(format!(
-                "unable to parse configuration file: {}",
-                e
-            ))),
-        },
-    }
-}
-
 pub fn read_config() -> Result<Config, Error> {
     let args: Vec<String> = env::args().collect();
     let program = args[0].clone();
@@ -319,58 +275,6 @@ pub fn read_config() -> Result<Config, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn old_config() {
-        let config = parse_config(
-            "
-vt = 1
-greeter = \"agreety\"
-greeter_user = \"greeter\"
-",
-        )
-        .expect("config didn't parse");
-        assert_eq!(
-            config,
-            ConfigFile {
-                terminal: ConfigTerminal {
-                    vt: VtSelection::Specific(1),
-                    switch: true,
-                },
-                default_session: ConfigSession {
-                    command: "agreety".to_string(),
-                    user: "greeter".to_string(),
-                    service: "greetd-greeter".to_string(),
-                },
-                general: Default::default(),
-                initial_session: None,
-            }
-        );
-
-        let config = parse_config(
-            "
-vt = \"next\"
-greeter = \"agreety\"
-",
-        )
-        .expect("config didn't parse");
-        assert_eq!(
-            config,
-            ConfigFile {
-                terminal: ConfigTerminal {
-                    vt: VtSelection::Next,
-                    switch: true,
-                },
-                default_session: ConfigSession {
-                    command: "agreety".to_string(),
-                    user: "greeter".to_string(),
-                    service: "greetd-greeter".to_string(),
-                },
-                general: Default::default(),
-                initial_session: None,
-            }
-        );
-    }
 
     #[test]
     fn minimal_config() {
