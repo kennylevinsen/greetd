@@ -13,4 +13,4 @@ inish = { path = "../inish"}
 rpassword = "5.0"
 getopts = "0.2"
 enquote = "1.1"
-nix = "0.26"
+nix = "0.27"
