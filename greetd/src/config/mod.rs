@@ -1,4 +1,4 @@
-use std::{collections::HashMap, default::Default, env, fs::read_to_string};
+use std::{collections::HashMap, default::Default, env, fs::read_to_string, str::FromStr};
 
 use enquote::unquote;
 use getopts::Options;
@@ -16,6 +16,22 @@ pub enum VtSelection {
     #[default]
     None,
     Specific(usize),
+}
+
+impl FromStr for VtSelection {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "none" | "\"none\"" => Ok(VtSelection::None),
+            "current" | "\"current\"" => Ok(VtSelection::Current),
+            "next" | "\"next\"" => Ok(VtSelection::Next),
+            v => v
+                .parse()
+                .map(VtSelection::Specific)
+                .map_err(|e| format!("could not parse vt number: {}", e)),
+        }
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, Default)]
@@ -94,15 +110,7 @@ fn parse_old_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<Confi
     let vtstr = general
         .get("vt")
         .ok_or("unable to parse configuration file: no VT specified")?;
-    let vt: VtSelection = match maybe_unquote(vtstr)?.as_str() {
-        "none" | "\"none\"" => VtSelection::None,
-        "current" | "\"current\"" => VtSelection::Current,
-        "next" | "\"next\"" => VtSelection::Next,
-        v => VtSelection::Specific(
-            v.parse()
-                .map_err(|e| format!("could not parse vt number: {}", e))?,
-        ),
-    };
+    let vt: VtSelection = maybe_unquote(vtstr)?.as_str().parse()?;
 
     Ok(ConfigFile {
         terminal: ConfigTerminal { vt, switch: true },
@@ -196,18 +204,10 @@ fn parse_new_config(config: &HashMap<&str, HashMap<&str, &str>>) -> Result<Confi
 
     let terminal = match config.get("terminal") {
         Some(section) => Ok(ConfigTerminal {
-            vt: match maybe_unquote(section.get("vt").ok_or("VT not specified")?)
+            vt: maybe_unquote(section.get("vt").ok_or("VT not specified")?)
                 .map_err(|e| format!("unable to read terminal.vt: {}", e))?
                 .as_str()
-            {
-                "none" | "\"none\"" => VtSelection::None,
-                "current" | "\"current\"" => VtSelection::Current,
-                "next" | "\"next\"" => VtSelection::Next,
-                v => VtSelection::Specific(
-                    v.parse()
-                        .map_err(|e| format!("could not parse vt number: {}", e))?,
-                ),
-            },
+                .parse()?,
             switch: section
                 .get("switch")
                 .unwrap_or(&"true")
