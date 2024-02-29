@@ -249,6 +249,7 @@ pub fn read_config() -> Result<Config, Error> {
     opts.optflag("h", "help", "print this help menu");
     opts.optopt("s", "socket-path", "socket path to use", "SOCKET_PATH");
     opts.optopt("c", "config", "config file to use", "CONFIG_FILE");
+    opts.optopt("", "vt", "use the specified vt", "VT");
     opts.optopt(
         "w",
         "session-worker",
@@ -283,7 +284,11 @@ pub fn read_config() -> Result<Config, Error> {
         None => read_to_string("/etc/greetd/greetd.conf")
             .or_else(|_| read_to_string("/etc/greetd/config.toml")),
     }?;
-    let file = parse_config(&config_str)?;
+    let mut file = parse_config(&config_str)?;
+
+    if let Some(vt) = matches.opt_str("vt") {
+        file.terminal.vt = vt.parse()?
+    };
 
     if file.default_session.command.is_empty() {
         return Err(Error::ConfigError(
