@@ -16,6 +16,11 @@ greetd - A login manager daemon
 *-c, --config <config>*
 	Specifies the configuration file to use.
 
+*--vt <vt>*
+	The VT to use, overwriting the value from the configuration file. This
+	can be useful when starting an instance per VT if greetd cannot deduce
+	the intended VT from an associated controlling terminal.
+
 # DESCRIPTION
 
 greetd was created to fill the need for a simple login manager that makes no
