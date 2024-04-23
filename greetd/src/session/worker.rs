@@ -222,10 +222,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     pam.open_session(PamFlag::NONE)?;
 
     // We are done with PAM, clear variables that the child will not need.
-    let cleared_env = ["XDG_SESSION_CLASS", "XDG_VTNR"];
-    for e in cleared_env.iter() {
-        _ = pam.putenv(e);
-    }
+    _ = pam.putenv(&"XDG_SESSION_CLASS");
 
     // Prepare some strings in C format that we'll need.
     let cusername = CString::new(user.name)?;
