@@ -252,7 +252,10 @@ impl Context {
     pub async fn post_response(&self, answer: Option<String>) -> Result<(), Error> {
         let mut inner = self.inner.write().await;
         match &mut inner.configuring {
-            Some(s) => s.session.post_response(answer).await,
+            Some(s) => match s.session.get_state().await? {
+                SessionState::Ready => Err("session has no pending questions".into()),
+                _ => s.session.post_response(answer).await,
+            },
             None => Err("no session under configuration".into()),
         }
     }
