@@ -16,7 +16,7 @@ use tokio::net::UnixDatagram as TokioUnixDatagram;
 use super::worker::{
     AuthMessageType, ParentToSessionChild, SessionChildToParent, SessionClass, TerminalMode,
 };
-use crate::error::Error;
+use crate::{error::Error, scrambler::Scrambler};
 
 #[async_trait]
 trait AsyncRecv<T: Sized> {
@@ -31,11 +31,12 @@ trait AsyncSend {
 #[async_trait]
 impl<'a> AsyncSend for ParentToSessionChild<'a> {
     async fn send(&self, sock: &mut TokioUnixDatagram) -> Result<(), Error> {
-        let out =
+        let mut out =
             serde_json::to_vec(self).map_err(|e| format!("unable to serialize message: {}", e))?;
         sock.send(&out)
             .await
             .map_err(|e| format!("unable to send message: {}", e))?;
+        out.scramble();
         Ok(())
     }
 }
@@ -187,9 +188,14 @@ impl Session {
     /// authentication attempt.
     pub async fn post_response(&mut self, answer: Option<String>) -> Result<(), Error> {
         self.last_msg = None;
-        ParentToSessionChild::PamResponse { resp: answer }
-            .send(&mut self.sock)
-            .await?;
+        let r = ParentToSessionChild::PamResponse { resp: answer };
+        r.send(&mut self.sock).await?;
+        if let ParentToSessionChild::PamResponse {
+            resp: Some(mut resp),
+        } = r
+        {
+            resp.scramble();
+        }
         Ok(())
     }
 

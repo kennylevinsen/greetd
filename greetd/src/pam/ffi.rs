@@ -1,13 +1,11 @@
-use std::{
-    ffi::{CStr, CString},
-    mem,
-    pin::Pin,
-};
+use std::{ffi::CStr, mem, pin::Pin};
 
-use libc::{c_int, c_void, calloc, free, size_t, strdup};
+use libc::{c_char, c_int, c_void, calloc, free, memcpy, size_t};
 use pam_sys::{PamConversation, PamMessage, PamMessageStyle, PamResponse, PamReturnCode};
 
 use super::converse::Converse;
+
+use crate::scrambler::Scrambler;
 
 pub struct PamConvHandlerWrapper<'a> {
     pub handler: Pin<Box<dyn Converse + 'a>>,
@@ -18,6 +16,16 @@ pub fn make_conversation(conv: &mut PamConvHandlerWrapper) -> PamConversation {
         conv: Some(converse),
         data_ptr: conv as *mut PamConvHandlerWrapper as *mut c_void,
     }
+}
+
+unsafe fn to_cstr(mut s: String) -> *mut c_char {
+    let a = calloc(1, s.len() + 1) as *mut c_char;
+    if a as u8 == 0 {
+        panic!("unable to allocate C string");
+    }
+    memcpy(a as *mut c_void, s.as_ptr() as *const c_void, s.len());
+    s.scramble();
+    return a;
 }
 
 pub extern "C" fn converse(
@@ -53,18 +61,14 @@ pub extern "C" fn converse(
         match PamMessageStyle::from(m.msg_style) {
             PamMessageStyle::PROMPT_ECHO_ON => {
                 if let Ok(handler_response) = wrapper.handler.prompt_echo(msg) {
-                    let cstr =
-                        CString::new(handler_response).expect("unable to allocate response string");
-                    r.resp = unsafe { strdup(cstr.as_ptr()) };
+                    r.resp = unsafe { to_cstr(handler_response) };
                 } else {
                     result = PamReturnCode::CONV_ERR;
                 }
             }
             PamMessageStyle::PROMPT_ECHO_OFF => {
                 if let Ok(handler_response) = wrapper.handler.prompt_blind(msg) {
-                    let cstr =
-                        CString::new(handler_response).expect("unable to allocate response string");
-                    r.resp = unsafe { strdup(cstr.as_ptr()) };
+                    r.resp = unsafe { to_cstr(handler_response) };
                 } else {
                     result = PamReturnCode::CONV_ERR;
                 }
