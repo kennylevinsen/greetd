@@ -34,11 +34,13 @@ impl From<std::io::Error> for Error {
     }
 }
 
+#[cfg_attr(docsrs, doc(cfg(feature = "sync-codec")))]
 #[cfg(feature = "sync-codec")]
 mod sync;
 #[cfg(feature = "sync-codec")]
 pub use self::sync::SyncCodec;
 
+#[cfg_attr(docsrs, doc(cfg(feature = "tokio-codec")))]
 #[cfg(feature = "tokio-codec")]
 mod tokio;
 #[cfg(feature = "tokio-codec")]
