@@ -31,6 +31,7 @@
 //! information about the request and response types, as well as their
 //! serialization.
 //!
+#![feature(doc_cfg)]
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "codec")]
