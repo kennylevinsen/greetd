@@ -1,6 +1,6 @@
 [package]
 name = "agreety"
-version = "0.10.0"
+version = "0.10.1"
 authors = ["Kenny Levinsen"]
 edition = "2018"
 license = "GPL-3.0-only"
