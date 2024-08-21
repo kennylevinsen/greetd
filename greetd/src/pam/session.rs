@@ -58,6 +58,14 @@ impl<'a> PamSession<'a> {
         }
     }
 
+    pub fn chauthtok(&mut self, flags: PamFlag) -> Result<(), PamError> {
+        self.last_code = pam_sys::chauthtok(self.handle, flags);
+        match self.last_code {
+            PamReturnCode::SUCCESS => Ok(()),
+            rc => Err(PamError::from_rc("pam_chauthtok", rc)),
+        }
+    }
+
     pub fn setcred(&mut self, flags: PamFlag) -> Result<(), PamError> {
         self.last_code = pam_sys::setcred(self.handle, flags);
         match self.last_code {
@@ -119,6 +127,7 @@ impl<'a> PamSession<'a> {
             Some(v) => Ok(v),
             None => Err(PamError::Error(
                 "unable to retrieve environment".to_string(),
+                PamReturnCode::SYSTEM_ERR,
             )),
         }
     }

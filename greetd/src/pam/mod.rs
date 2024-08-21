@@ -10,17 +10,17 @@ use pam_sys::PamReturnCode;
 #[derive(Debug, ThisError)]
 pub enum PamError {
     #[error("{0}")]
-    Error(String),
+    Error(String, PamReturnCode),
     #[error("{0}")]
-    AuthError(String),
+    AuthError(String, PamReturnCode),
     #[error("abort error: {0}")]
-    AbortError(String),
+    AbortError(String, PamReturnCode),
 }
 
 impl PamError {
     pub fn from_rc(prefix: &str, rc: PamReturnCode) -> PamError {
         match rc {
-            PamReturnCode::ABORT => PamError::AbortError(format!("{}: {:?}", prefix, rc)),
+            PamReturnCode::ABORT => PamError::AbortError(format!("{}: {:?}", prefix, rc), rc),
             PamReturnCode::AUTH_ERR
             | PamReturnCode::MAXTRIES
             | PamReturnCode::CRED_EXPIRED
@@ -28,8 +28,10 @@ impl PamError {
             | PamReturnCode::CRED_INSUFFICIENT
             | PamReturnCode::USER_UNKNOWN
             | PamReturnCode::PERM_DENIED
-            | PamReturnCode::SERVICE_ERR => PamError::AuthError(format!("{}: {:?}", prefix, rc)),
-            _ => PamError::Error(format!("{}: {:?}", prefix, rc)),
+            | PamReturnCode::SERVICE_ERR => {
+                PamError::AuthError(format!("{}: {:?}", prefix, rc), rc)
+            }
+            _ => PamError::Error(format!("{}: {:?}", prefix, rc), rc),
         }
     }
 }

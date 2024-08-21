@@ -1,10 +1,11 @@
 use std::{env, ffi::CString, os::unix::net::UnixDatagram};
 
+use crate::pam::PamError;
 use nix::{
     sys::wait::waitpid,
     unistd::{execve, fork, initgroups, setgid, setsid, setuid, ForkResult},
 };
-use pam_sys::{PamFlag, PamItemType};
+use pam_sys::{PamFlag, PamItemType, PamReturnCode};
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -129,7 +130,16 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     if authenticate {
         pam.authenticate(PamFlag::NONE)?;
     }
-    pam.acct_mgmt(PamFlag::NONE)?;
+    if let Err(e) = pam.acct_mgmt(PamFlag::NONE) {
+        match e {
+            PamError::AuthError(_, PamReturnCode::NEW_AUTHTOK_REQD) => {
+                pam.chauthtok(PamFlag::CHANGE_EXPIRED_AUTHTOK)?;
+            }
+            e => {
+                return Err(e.into());
+            }
+        }
+    }
 
     // Not the credentials you think.
     pam.setcred(PamFlag::ESTABLISH_CRED)?;
