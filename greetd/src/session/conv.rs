@@ -28,7 +28,7 @@ impl<'a> SessionConv<'a> {
     }
 
     /// Create a new `PasswordConv` handler
-    pub fn new(sock: &'a std::os::unix::net::UnixDatagram) -> SessionConv {
+    pub fn new(sock: &'a std::os::unix::net::UnixDatagram) -> SessionConv<'a> {
         SessionConv { sock }
     }
 }
