@@ -57,15 +57,24 @@ enum LoginResult {
     Failure,
 }
 
-fn login(node: &str, cmd: &mut Option<String>) -> Result<LoginResult, Box<dyn std::error::Error>> {
-    let username = loop {
-        let username = prompt_stderr(&format!("{} login: ", node))?;
-        if let Some(u) = username.strip_prefix('!') {
-            *cmd = Some(u.to_string());
-            eprintln!("Login command changed to: {u}");
-            continue;
+fn login(
+    node: &str,
+    cmd: &mut Option<String>,
+    user: Option<&str>,
+) -> Result<LoginResult, Box<dyn std::error::Error>> {
+    let username = if let Some(u) = user {
+        println!("{node} login: {u}");
+        u.to_string()
+    } else {
+        loop {
+            let username = prompt_stderr(&format!("{node} login: "))?;
+            if let Some(u) = username.strip_prefix('!') {
+                *cmd = Some(u.to_string());
+                eprintln!("Login command changed to: {u}");
+                continue;
+            }
+            break username;
         }
-        break username;
     };
 
     let mut stream = UnixStream::connect(env::var("GREETD_SOCK")?)?;
@@ -143,6 +152,7 @@ fn main() {
         "maximum number of accepted failures",
         "FAILURES",
     );
+    opts.optopt("u", "user", "restrict login to a specific user", "USER");
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(f) => {
@@ -164,6 +174,10 @@ fn main() {
             std::process::exit(1)
         }
     };
+    let user: Option<String> = match matches.opt_get("user") {
+        Ok(s) => s,
+        Err(_) => None,
+    };
 
     if let Ok(issue) = get_issue() {
         print!("{}", issue);
@@ -171,7 +185,7 @@ fn main() {
 
     let uts = uname().unwrap();
     for _ in 0..max_failures {
-        match login(uts.nodename().to_str().unwrap(), &mut cmd) {
+        match login(uts.nodename().to_str().unwrap(), &mut cmd, user.as_deref()) {
             Ok(LoginResult::Success) => break,
             Ok(LoginResult::Failure) => eprintln!("Login incorrect\n"),
             Err(e) => {

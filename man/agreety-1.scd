@@ -21,6 +21,9 @@ agreety - A text-based greeter for greetd
 	Specifies the maximum number of login failures to accept before terminating.
 	Defaults to 5.
 
+*-u, --user <user>*
+	Restrict login to *user*.
+
 # DESCRIPTION
 
 agreety is a very simple text-based greeter, with an appearance similar to
