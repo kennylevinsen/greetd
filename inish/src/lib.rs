@@ -1,9 +1,8 @@
 use std::{collections::HashMap, error::Error};
 
-fn parse_field<'a>(line: &'a str) -> Result<(&'a str, &'a str), Box<dyn Error>> {
-    let split = match line.find('=') {
-        Some(v) => v,
-        None => return Err("expected equals sign on line, but found none".into()),
+fn parse_field(line: &str) -> Result<(&str, &str), Box<dyn Error>> {
+    let Some(split) = line.find('=') else {
+        return Err("expected equals sign on line, but found none".into());
     };
 
     let (key, value) = line.split_at(split);

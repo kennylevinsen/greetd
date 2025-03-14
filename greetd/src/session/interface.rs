@@ -29,7 +29,7 @@ trait AsyncSend {
 }
 
 #[async_trait]
-impl<'a> AsyncSend for ParentToSessionChild<'a> {
+impl AsyncSend for ParentToSessionChild<'_> {
     async fn send(&self, sock: &mut TokioUnixDatagram) -> Result<(), Error> {
         let mut out =
             serde_json::to_vec(self).map_err(|e| format!("unable to serialize message: {e}"))?;
