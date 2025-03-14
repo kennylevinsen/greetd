@@ -104,7 +104,7 @@ impl Context {
             match scheduled_session.get_state().await {
                 Ok(SessionState::Ready) => break,
                 Ok(SessionState::Question(_, _)) => scheduled_session.post_response(None).await?,
-                Err(err) => return Err(format!("session start failed: {}", err).into()),
+                Err(err) => return Err(format!("session start failed: {err}").into()),
             }
         }
 
@@ -151,7 +151,7 @@ impl Context {
     /// Create runfile used to check if greetd was already started since boot
     pub fn create_runfile(&self) {
         if let Err(err) = File::create(&self.runfile) {
-            eprintln!("could not create runfile: {}", err);
+            eprintln!("could not create runfile: {err}");
         }
     }
 
@@ -320,7 +320,7 @@ impl Context {
             drop(inner);
             let s = match p.session.start().await {
                 Ok(s) => s,
-                Err(e) => return Err(format!("session start failed: {}", e).into()),
+                Err(e) => return Err(format!("session start failed: {e}").into()),
             };
             let mut inner = self.inner.write().await;
             inner.current = Some(SessionChildSet {
@@ -360,7 +360,7 @@ impl Context {
                             drop(inner);
                             let s = match scheduled.session.start().await {
                                 Ok(s) => s,
-                                Err(e) => return Err(format!("session start failed: {}", e).into()),
+                                Err(e) => return Err(format!("session start failed: {e}").into()),
                             };
                             let mut inner = self.inner.write().await;
                             inner.current = Some(SessionChildSet {

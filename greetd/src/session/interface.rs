@@ -32,10 +32,10 @@ trait AsyncSend {
 impl<'a> AsyncSend for ParentToSessionChild<'a> {
     async fn send(&self, sock: &mut TokioUnixDatagram) -> Result<(), Error> {
         let mut out =
-            serde_json::to_vec(self).map_err(|e| format!("unable to serialize message: {}", e))?;
+            serde_json::to_vec(self).map_err(|e| format!("unable to serialize message: {e}"))?;
         sock.send(&out)
             .await
-            .map_err(|e| format!("unable to send message: {}", e))?;
+            .map_err(|e| format!("unable to send message: {e}"))?;
         out.scramble();
         Ok(())
     }
@@ -48,9 +48,9 @@ impl AsyncRecv<SessionChildToParent> for SessionChildToParent {
         let len = sock
             .recv(&mut data[..])
             .await
-            .map_err(|e| format!("unable to recieve message: {}", e))?;
+            .map_err(|e| format!("unable to recieve message: {e}"))?;
         let msg = serde_json::from_slice(&data[..len])
-            .map_err(|e| format!("unable to deserialize message: {}", e))?;
+            .map_err(|e| format!("unable to deserialize message: {e}"))?;
         Ok(msg)
     }
 }
@@ -97,7 +97,7 @@ impl Session {
     pub fn new_external() -> Result<Session, Error> {
         // Pipe used to communicate the true PID of the final child.
         let (parentfd, childfd) =
-            UnixDatagram::pair().map_err(|e| format!("could not create pipe: {}", e))?;
+            UnixDatagram::pair().map_err(|e| format!("could not create pipe: {e}"))?;
 
         let raw_child = childfd.as_raw_fd();
         let mut cur_flags = FdFlag::from_bits_retain(fcntl(raw_child, FcntlArg::F_GETFD)?);
@@ -107,7 +107,7 @@ impl Session {
         let cur_exe = std::env::current_exe()?;
         let bin = CString::new(cur_exe.to_str().expect("unable to get current exe name"))?;
 
-        let child = match unsafe { fork() }.map_err(|e| format!("unable to fork: {}", e))? {
+        let child = match unsafe { fork() }.map_err(|e| format!("unable to fork: {e}"))? {
             ForkResult::Parent { child, .. } => child,
             ForkResult::Child => {
                 execv(

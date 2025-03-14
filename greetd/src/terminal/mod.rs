@@ -50,9 +50,9 @@ fn ttyname_r(fd: RawFd) -> Result<String, Error> {
     }
     let len = unsafe { libc::strnlen(&arr[0] as *const u8 as *const libc::c_char, 31) };
     let s = CStr::from_bytes_with_nul(&arr[..len + 1])
-        .map_err(|e| Error::Error(format!("ttyname_r result conversion failed: {}", e)))?;
+        .map_err(|e| Error::Error(format!("ttyname_r result conversion failed: {e}")))?;
     Ok(s.to_str()
-        .map_err(|e| Error::Error(format!("ttyname_r result conversion failed: {}", e)))?
+        .map_err(|e| Error::Error(format!("ttyname_r result conversion failed: {e}")))?
         .to_string())
 }
 
@@ -69,7 +69,7 @@ impl Terminal {
                 fd,
                 autoclose: true,
             }),
-            Err(e) => return Err(format!("terminal: unable to open: {}", e).into()),
+            Err(e) => return Err(format!("terminal: unable to open: {e}").into()),
         }
     }
 
@@ -94,7 +94,7 @@ impl Terminal {
         let ret = unsafe { ioctl::kd_setmode(self.fd, mode) };
 
         if let Err(v) = ret {
-            Err(format!("terminal: unable to set kernel display mode: {}", v).into())
+            Err(format!("terminal: unable to set kernel display mode: {v}").into())
         } else {
             Ok(())
         }
@@ -103,10 +103,10 @@ impl Terminal {
     /// Switches to the specified VT and waits for completion of switch.
     fn vt_activate(&self, target_vt: usize) -> Result<(), Error> {
         if let Err(v) = unsafe { ioctl::vt_activate(self.fd, target_vt as i32) } {
-            return Err(format!("terminal: unable to activate: {}", v).into());
+            return Err(format!("terminal: unable to activate: {v}").into());
         }
         if let Err(v) = unsafe { ioctl::vt_waitactive(self.fd, target_vt as i32) } {
-            return Err(format!("terminal: unable to wait for activation: {}", v).into());
+            return Err(format!("terminal: unable to wait for activation: {v}").into());
         }
         Ok(())
     }
@@ -114,7 +114,7 @@ impl Terminal {
     /// Waits for specified VT to become active.
     pub fn vt_waitactive(&self, target_vt: usize) -> Result<(), Error> {
         if let Err(v) = unsafe { ioctl::vt_waitactive(self.fd, target_vt as i32) } {
-            return Err(format!("terminal: unable to wait for activation: {}", v).into());
+            return Err(format!("terminal: unable to wait for activation: {v}").into());
         }
         Ok(())
     }
@@ -131,7 +131,7 @@ impl Terminal {
         let res = unsafe { ioctl::vt_setmode(self.fd, &mode) };
 
         if let Err(v) = res {
-            Err(format!("terminal: unable to set vt mode: {}", v).into())
+            Err(format!("terminal: unable to set vt mode: {v}").into())
         } else {
             Ok(())
         }
@@ -155,10 +155,10 @@ impl Terminal {
                 },
             };
             if let Err(v) = unsafe { ioctl::vt_setactivate(self.fd, &arg) } {
-                return Err(format!("terminal: unable to setactivate: {}", v).into());
+                return Err(format!("terminal: unable to setactivate: {v}").into());
             }
             if let Err(v) = unsafe { ioctl::vt_waitactive(self.fd, target_vt as i32) } {
-                return Err(format!("terminal: unable to wait for activation: {}", v).into());
+                return Err(format!("terminal: unable to wait for activation: {v}").into());
             }
         } else {
             self.vt_mode_clean()?;
@@ -177,7 +177,7 @@ impl Terminal {
         let res = unsafe { ioctl::vt_getstate(self.fd, &mut state as *mut ioctl::vt_state) };
 
         if let Err(v) = res {
-            Err(format!("terminal: unable to get current vt: {}", v).into())
+            Err(format!("terminal: unable to get current vt: {v}").into())
         } else if state.v_active < 1 {
             Err(format!("terminal: current vt invalid: {}", state.v_active).into())
         } else {
@@ -193,9 +193,9 @@ impl Terminal {
         let res = unsafe { ioctl::vt_openqry(self.fd, &mut next_vt as *mut i64) };
 
         if let Err(v) = res {
-            Err(format!("terminal: unable to get next vt: {}", v).into())
+            Err(format!("terminal: unable to get next vt: {v}").into())
         } else if next_vt < 1 {
-            Err(format!("terminal: next vt invalid: {}", next_vt).into())
+            Err(format!("terminal: next vt invalid: {next_vt}").into())
         } else {
             Ok(next_vt as usize)
         }
@@ -209,7 +209,7 @@ impl Terminal {
             .and_then(|_| dup2(self.fd, 2));
 
         if let Err(v) = res {
-            Err(format!("terminal: unable to connect pipes: {}", v).into())
+            Err(format!("terminal: unable to connect pipes: {v}").into())
         } else {
             Ok(())
         }
@@ -220,7 +220,7 @@ impl Terminal {
     pub fn term_clear(&self) -> Result<(), Error> {
         let res = write(self.fd, b"\x1B[H\x1B[2J");
         if let Err(v) = res {
-            Err(format!("terminal: unable to clear: {}", v).into())
+            Err(format!("terminal: unable to clear: {v}").into())
         } else {
             Ok(())
         }
@@ -231,7 +231,7 @@ impl Terminal {
         let res = unsafe { ioctl::term_tiocsctty(self.fd, 1) };
 
         match res {
-            Err(e) => Err(format!("terminal: unable to take controlling terminal: {}", e).into()),
+            Err(e) => Err(format!("terminal: unable to take controlling terminal: {e}").into()),
             Ok(_) => Ok(()),
         }
     }

@@ -20,7 +20,7 @@ pub enum PamError {
 impl PamError {
     pub fn from_rc(prefix: &str, rc: PamReturnCode) -> PamError {
         match rc {
-            PamReturnCode::ABORT => PamError::AbortError(format!("{}: {:?}", prefix, rc)),
+            PamReturnCode::ABORT => PamError::AbortError(format!("{prefix}: {rc:?}")),
             PamReturnCode::AUTH_ERR
             | PamReturnCode::MAXTRIES
             | PamReturnCode::CRED_EXPIRED
@@ -28,8 +28,8 @@ impl PamError {
             | PamReturnCode::CRED_INSUFFICIENT
             | PamReturnCode::USER_UNKNOWN
             | PamReturnCode::PERM_DENIED
-            | PamReturnCode::SERVICE_ERR => PamError::AuthError(format!("{}: {:?}", prefix, rc)),
-            _ => PamError::Error(format!("{}: {:?}", prefix, rc)),
+            | PamReturnCode::SERVICE_ERR => PamError::AuthError(format!("{prefix}: {rc:?}")),
+            _ => PamError::Error(format!("{prefix}: {rc:?}")),
         }
     }
 }

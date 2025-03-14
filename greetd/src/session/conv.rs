@@ -15,10 +15,10 @@ impl<'a> SessionConv<'a> {
             msg: msg.to_string(),
         };
         msg.send(self.sock)
-            .map_err(|e| eprintln!("pam_conv: {}", e))?;
+            .map_err(|e| eprintln!("pam_conv: {e}"))?;
 
         let msg = ParentToSessionChild::recv(self.sock, &mut data)
-            .map_err(|e| eprintln!("pam_conv: {}", e))?;
+            .map_err(|e| eprintln!("pam_conv: {e}"))?;
 
         match msg {
             ParentToSessionChild::PamResponse { resp, .. } => Ok(resp),

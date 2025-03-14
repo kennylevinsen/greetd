@@ -34,12 +34,12 @@ async fn main() {
     let config = match config::read_config() {
         Ok(config) => config,
         Err(e) => {
-            eprintln!("{}", e);
+            eprintln!("{e}");
             std::process::exit(1);
         }
     };
     if cfg!(feature = "debug") {
-        eprintln!("config: {:?}", config);
+        eprintln!("config: {config:?}");
     }
     mlockall(MlockAllFlags::all()).expect("unable to lock pages");
     let res = task::LocalSet::new()
@@ -52,6 +52,6 @@ async fn main() {
         })
         .await;
     if let Err(e) = res {
-        eprintln!("error: {}", e);
+        eprintln!("error: {e}");
     }
 }

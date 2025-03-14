@@ -34,11 +34,9 @@ pub fn parse<'a>(s: &'a str) -> Result<Inish<'a>, Box<dyn Error>> {
                 current_section_name = line[1..len - 1].trim();
             }
             (Some('['), v) => {
-                return Err(format!(
-                    "expected Some(']') to terminate section name, but got {:?}",
-                    v
-                )
-                .into());
+                return Err(
+                    format!("expected Some(']') to terminate section name, but got {v:?}",).into(),
+                );
             }
             _ if line.is_empty() => continue,
             _ => {

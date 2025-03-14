@@ -120,7 +120,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
                 listener_path,
             ),
             ParentToSessionChild::Cancel => return Err("cancelled".into()),
-            msg => return Err(format!("expected InitiateLogin or Cancel, got: {:?}", msg).into()),
+            msg => return Err(format!("expected InitiateLogin or Cancel, got: {msg:?}").into()),
         };
 
     let conv = Box::pin(SessionConv::new(sock));
@@ -147,7 +147,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     let (env, cmd) = match ParentToSessionChild::recv(sock, &mut data)? {
         ParentToSessionChild::Args { env, cmd } => (env, cmd),
         ParentToSessionChild::Cancel => return Err("cancelled".into()),
-        msg => return Err(format!("expected Args or Cancel, got: {:?}", msg).into()),
+        msg => return Err(format!("expected Args or Cancel, got: {msg:?}").into()),
     };
 
     SessionChildToParent::Success.send(sock)?;
@@ -156,7 +156,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     match ParentToSessionChild::recv(sock, &mut data)? {
         ParentToSessionChild::Start => (),
         ParentToSessionChild::Cancel => return Err("cancelled".into()),
-        msg => return Err(format!("expected Start or Cancel, got: {:?}", msg).into()),
+        msg => return Err(format!("expected Start or Cancel, got: {msg:?}").into()),
     };
 
     let pam_username = pam.get_user()?;
@@ -164,14 +164,14 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     let user = nix::unistd::User::from_name(&pam_username)?.ok_or("unable to get user info")?;
 
     // Make this process a session leader.
-    setsid().map_err(|e| format!("unable to become session leader: {}", e))?;
+    setsid().map_err(|e| format!("unable to become session leader: {e}"))?;
 
     match tty {
         TerminalMode::Stdin => (),
         TerminalMode::Terminal { path, vt, switch } => {
             // Tell PAM what TTY we're targetting, which is used by logind.
-            pam.set_item(PamItemType::TTY, &format!("tty{}", vt))?;
-            pam.putenv(&format!("XDG_VTNR={}", vt))?;
+            pam.set_item(PamItemType::TTY, &format!("tty{vt}"))?;
+            pam.putenv(&format!("XDG_VTNR={vt}"))?;
 
             // Opening our target terminal.
             let target_term = terminal::Terminal::open(&path)?;
@@ -242,7 +242,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     // PAM is weird and gets upset if you exec from the process that opened
     // the session, registering it automatically as a log-out. Thus, we must
     // exec in a new child.
-    let child = match unsafe { fork() }.map_err(|e| format!("unable to fork: {}", e))? {
+    let child = match unsafe { fork() }.map_err(|e| format!("unable to fork: {e}"))? {
         ForkResult::Parent { child, .. } => child,
         ForkResult::Child => {
             // It is important that we do *not* return from here by
@@ -260,7 +260,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
 
             // Change working directory
             if let Err(e) = env::set_current_dir(user.dir) {
-                eprintln!("unable to set working directory: {}", e);
+                eprintln!("unable to set working directory: {e}");
             }
 
             // Run
@@ -293,7 +293,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
         match waitpid(child, None) {
             Err(nix::errno::Errno::EINTR) => continue,
             Err(e) => {
-                eprintln!("session: waitpid on inner child failed: {}", e);
+                eprintln!("session: waitpid on inner child failed: {e}");
                 break;
             }
             Ok(_) => break,

@@ -29,7 +29,7 @@ impl FromStr for VtSelection {
             v => v
                 .parse()
                 .map(VtSelection::Specific)
-                .map_err(|e| format!("could not parse vt number: {}", e)),
+                .map_err(|e| format!("could not parse vt number: {e}")),
         }
     }
 }
@@ -84,14 +84,14 @@ pub struct Config {
 }
 
 fn print_usage(program: &str, opts: Options) {
-    let brief = format!("Usage: {} [options]", program);
+    let brief = format!("Usage: {program} [options]");
     println!("{}", opts.usage(&brief));
     println!("For more details, see greetd(1).");
 }
 
 fn maybe_unquote(s: &str) -> Result<String, Error> {
     Ok(match s.chars().next() {
-        Some('"') | Some('\'') => unquote(s).map_err(|e| Error::ConfigError(format!("{}", e)))?,
+        Some('"') | Some('\'') => unquote(s).map_err(|e| Error::ConfigError(e.to_string()))?,
         _ => s.to_string(),
     })
 }
@@ -102,18 +102,18 @@ fn parse_config(config_str: &str) -> Result<ConfigFile, Error> {
         Some(section) => {
             let runfilestr = section.get("runfile").unwrap_or(&RUNFILE);
             let runfile = maybe_unquote(runfilestr)
-                .map_err(|e| format!("unable to read general.runfile: {}", e))?;
+                .map_err(|e| format!("unable to read general.runfile: {e}"))?;
 
             let servicestr = section.get("service").unwrap_or(&GENERAL_SERVICE);
             let service = maybe_unquote(servicestr)
-                .map_err(|e| format!("unable to read general.service: {}", e))?;
+                .map_err(|e| format!("unable to read general.service: {e}"))?;
 
             ConfigGeneral {
                 source_profile: section
                     .get("source_profile")
                     .unwrap_or(&"true")
                     .parse()
-                    .map_err(|e| format!("could not parse source_profile: {}", e))?,
+                    .map_err(|e| format!("could not parse source_profile: {e}"))?,
                 runfile,
                 service,
             }
@@ -128,15 +128,15 @@ fn parse_config(config_str: &str) -> Result<ConfigFile, Error> {
                 .get("command")
                 .ok_or("default_session contains no command")?;
             let command = maybe_unquote(commandstr)
-                .map_err(|e| format!("unable to read default_session.command: {}", e))?;
+                .map_err(|e| format!("unable to read default_session.command: {e}"))?;
 
             let userstr = section.get("user").unwrap_or(&"greeter");
             let user = maybe_unquote(userstr)
-                .map_err(|e| format!("unable to read default_session.user: {}", e))?;
+                .map_err(|e| format!("unable to read default_session.user: {e}"))?;
 
             let servicestr = section.get("service").unwrap_or(&GREETER_SERVICE);
             let service = maybe_unquote(servicestr)
-                .map_err(|e| format!("unable to read default_session.service: {}", e))?;
+                .map_err(|e| format!("unable to read default_session.service: {e}"))?;
 
             Ok(ConfigSession {
                 command,
@@ -153,18 +153,18 @@ fn parse_config(config_str: &str) -> Result<ConfigFile, Error> {
                 .get("command")
                 .ok_or("initial_session contains no command")?;
             let command = maybe_unquote(commandstr)
-                .map_err(|e| format!("unable to read initial_session.command: {}", e))?;
+                .map_err(|e| format!("unable to read initial_session.command: {e}"))?;
 
             let userstr = section
                 .get("user")
                 .ok_or("initial_session contains no user")?;
             let user = maybe_unquote(userstr)
-                .map_err(|e| format!("unable to read initial_session.user: {}", e))?;
+                .map_err(|e| format!("unable to read initial_session.user: {e}"))?;
 
             let generalservicestr = general.service.as_str();
             let servicestr = section.get("service").unwrap_or(&generalservicestr);
             let service = maybe_unquote(servicestr)
-                .map_err(|e| format!("unable to read initial_session.service: {}", e))?;
+                .map_err(|e| format!("unable to read initial_session.service: {e}"))?;
 
             Some(ConfigSession {
                 command,
@@ -178,14 +178,14 @@ fn parse_config(config_str: &str) -> Result<ConfigFile, Error> {
     let terminal = match config.get("terminal") {
         Some(section) => Ok(ConfigTerminal {
             vt: maybe_unquote(section.get("vt").ok_or("VT not specified")?)
-                .map_err(|e| format!("unable to read terminal.vt: {}", e))?
+                .map_err(|e| format!("unable to read terminal.vt: {e}"))?
                 .as_str()
                 .parse()?,
             switch: section
                 .get("switch")
                 .unwrap_or(&"true")
                 .parse()
-                .map_err(|e| format!("could not parse switch: {}", e))?,
+                .map_err(|e| format!("could not parse switch: {e}"))?,
         }),
         None => Err("no terminal specified"),
     }?;
@@ -214,7 +214,7 @@ pub fn read_config() -> Result<Config, Error> {
     );
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
-        Err(f) => return Err(format!("could not parse arguments: {}", f).into()),
+        Err(f) => return Err(format!("could not parse arguments: {f}").into()),
     };
     if matches.opt_present("h") {
         print_usage(&program, opts);

@@ -21,7 +21,7 @@ fn maybe_unquote(s: &str) -> Result<String, Box<dyn std::error::Error>> {
 fn prompt_stderr(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     let stdin = io::stdin();
     let mut stdin_iter = stdin.lock().lines();
-    eprint!("{}", prompt);
+    eprint!("{prompt}");
     Ok(stdin_iter.next().ok_or("no input")??)
 }
 
@@ -43,7 +43,7 @@ fn get_issue() -> Result<String, Box<dyn std::error::Error>> {
             "\\S",
             &get_distro_name().unwrap_or_else(|_| "Linux".to_string()),
         )
-        .replace("\\l", &format!("tty{}", vtnr))
+        .replace("\\l", &format!("tty{vtnr}"))
         .replace("\\s", uts.sysname().to_str().unwrap())
         .replace("\\r", uts.release().to_str().unwrap())
         .replace("\\v", uts.version().to_str().unwrap())
@@ -93,11 +93,11 @@ fn login(
                     AuthMessageType::Visible => Some(prompt_stderr(&auth_message)?),
                     AuthMessageType::Secret => Some(prompt_password_stderr(&auth_message)?),
                     AuthMessageType::Info => {
-                        eprintln!("info: {}", auth_message);
+                        eprintln!("info: {auth_message}");
                         None
                     }
                     AuthMessageType::Error => {
-                        eprintln!("error: {}", auth_message);
+                        eprintln!("error: {auth_message}");
                         None
                     }
                 };
@@ -126,9 +126,7 @@ fn login(
                 Request::CancelSession.write_to(&mut stream)?;
                 match error_type {
                     ErrorType::AuthError => return Ok(LoginResult::Failure),
-                    ErrorType::Error => {
-                        return Err(format!("login error: {:?}", description).into())
-                    }
+                    ErrorType::Error => return Err(format!("login error: {description:?}").into()),
                 }
             }
         }
@@ -136,7 +134,7 @@ fn login(
 }
 
 fn print_usage(program: &str, opts: Options) {
-    let brief = format!("Usage: {} [options]", program);
+    let brief = format!("Usage: {program} [options]");
     print!("{}", opts.usage(&brief));
 }
 
@@ -156,7 +154,7 @@ fn main() {
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(f) => {
-            println!("{}", f);
+            println!("{f}");
             print_usage(&program, opts);
             std::process::exit(1);
         }
@@ -170,7 +168,7 @@ fn main() {
     let max_failures: usize = match matches.opt_get("max-failures") {
         Ok(v) => v.unwrap_or(5),
         Err(e) => {
-            eprintln!("unable to parse max failures: {}", e);
+            eprintln!("unable to parse max failures: {e}");
             std::process::exit(1)
         }
     };
@@ -180,7 +178,7 @@ fn main() {
     };
 
     if let Ok(issue) = get_issue() {
-        print!("{}", issue);
+        print!("{issue}");
     }
 
     let uts = uname().unwrap();
@@ -189,7 +187,7 @@ fn main() {
             Ok(LoginResult::Success) => break,
             Ok(LoginResult::Failure) => eprintln!("Login incorrect\n"),
             Err(e) => {
-                eprintln!("error: {}", e);
+                eprintln!("error: {e}");
                 std::process::exit(1);
             }
         }

@@ -23,13 +23,13 @@ pub enum Error {
 
 impl From<Box<dyn std::error::Error>> for Error {
     fn from(error: Box<dyn std::error::Error>) -> Self {
-        Error::Error(format!("{}", error))
+        Error::Error(error.to_string())
     }
 }
 
 impl From<std::io::Error> for Error {
     fn from(error: std::io::Error) -> Self {
-        Error::Io(format!("{}", error))
+        Error::Io(error.to_string())
     }
 }
 

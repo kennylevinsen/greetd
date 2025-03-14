@@ -24,7 +24,7 @@ fn wrap_result<T>(res: Result<T, Error>) -> Response {
         },
         Err(e) => Response::Error {
             error_type: ErrorType::Error,
-            description: format!("{}", e),
+            description: e.to_string(),
         },
     }
 }
@@ -125,7 +125,7 @@ async fn client_handler(ctx: &Context, mut s: UnixStream) -> Result<(), Error> {
             Err(e) => return Err(e.into()),
         };
 
-        println!("req: {:?}", req);
+        println!("req: {req:?}");
         let resp = match req {
             Request::CreateSession { username } => match ctx.create_session(username).await {
                 Ok(()) => client_get_question(ctx).await,
@@ -145,7 +145,7 @@ async fn client_handler(ctx: &Context, mut s: UnixStream) -> Result<(), Error> {
             ctx.cancel().await?;
         }
 
-        println!("resp: {:?}", resp);
+        println!("resp: {resp:?}");
         resp.write_to(&mut s).await?;
     }
 }
@@ -162,7 +162,7 @@ pub async fn server() -> Result<(), Error> {
 
     let _ = std::fs::remove_file(&path);
     let listener =
-        UnixListener::bind(&path).map_err(|e| format!("unable to open listener: {}", e))?;
+        UnixListener::bind(&path).map_err(|e| format!("unable to open listener: {e}"))?;
 
     let arg = env::args().nth(1).expect("need argument");
     let _ = Command::new("sh").arg("-c").arg(arg).spawn()?;
@@ -175,11 +175,11 @@ pub async fn server() -> Result<(), Error> {
                 let ctx = ctx.clone();
                 task::spawn_local(async move {
                     if let Err(e) = client_handler(&ctx, stream).await {
-                        eprintln!("client loop failed: {}", e);
+                        eprintln!("client loop failed: {e}");
                     }
                 });
             }
-            Err(err) => return Err(format!("accept: {}", err).into()),
+            Err(err) => return Err(format!("accept: {err}").into()),
         }
     }
 }
@@ -190,6 +190,6 @@ async fn main() {
         .run_until(async move { server().await })
         .await;
     if let Err(e) = res {
-        eprintln!("error: {}", e);
+        eprintln!("error: {e}");
     }
 }

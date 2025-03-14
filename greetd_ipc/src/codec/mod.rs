@@ -30,7 +30,7 @@ impl From<serde_json::error::Error> for Error {
 
 impl From<std::io::Error> for Error {
     fn from(error: std::io::Error) -> Self {
-        Error::Io(format!("{}", error))
+        Error::Io(error.to_string())
     }
 }
 
