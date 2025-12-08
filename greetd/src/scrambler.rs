@@ -34,7 +34,7 @@ impl Scrambler for CString {
             let mut offset = 0;
 
             while *ptr.offset(offset) != 0 {
-                *(ptr.offset(offset) as *mut i8) = 0;
+                *ptr.offset(offset).cast_mut() = 0;
                 offset += 1;
             }
         }

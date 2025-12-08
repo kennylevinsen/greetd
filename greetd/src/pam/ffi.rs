@@ -14,16 +14,16 @@ pub struct PamConvHandlerWrapper<'a> {
 pub fn make_conversation(conv: &mut PamConvHandlerWrapper) -> PamConversation {
     PamConversation {
         conv: Some(converse),
-        data_ptr: conv as *mut PamConvHandlerWrapper as *mut c_void,
+        data_ptr: std::ptr::from_mut::<PamConvHandlerWrapper>(conv).cast::<c_void>(),
     }
 }
 
 unsafe fn to_cstr(mut s: String) -> *mut c_char {
-    let a = calloc(1, s.len() + 1) as *mut c_char;
+    let a = calloc(1, s.len() + 1).cast::<c_char>();
     assert!(!a.is_null(), "unable to allocate C string");
-    memcpy(a as *mut c_void, s.as_ptr() as *const c_void, s.len());
+    memcpy(a.cast::<c_void>(), s.as_ptr().cast::<c_void>(), s.len());
     s.scramble();
-    return a;
+    a
 }
 
 pub extern "C" fn converse(
@@ -34,7 +34,7 @@ pub extern "C" fn converse(
 ) -> c_int {
     // allocate space for responses
     let resp = unsafe {
-        calloc(num_msg as usize, mem::size_of::<PamResponse>() as size_t) as *mut PamResponse
+        calloc(num_msg as usize, mem::size_of::<PamResponse>() as size_t).cast::<PamResponse>()
     };
     if resp.is_null() {
         return PamReturnCode::BUF_ERR as c_int;
@@ -93,12 +93,12 @@ pub extern "C" fn converse(
         for i in 0..num_msg as isize {
             let r: &mut PamResponse = unsafe { &mut *(resp.offset(i)) };
             if !r.resp.is_null() {
-                unsafe { free(r.resp as *mut c_void) };
+                unsafe { free(r.resp.cast::<c_void>()) };
             }
         }
 
         // Free the response array
-        unsafe { free(resp as *mut c_void) };
+        unsafe { free(resp.cast::<c_void>()) };
     } else {
         unsafe { *out_resp = resp };
     }

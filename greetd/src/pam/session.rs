@@ -95,7 +95,7 @@ impl<'a> PamSession<'a> {
         self.last_code = PamReturnCode::from(unsafe {
             // pam_set_item is exposed in a weird way in pam_sys::wrapped, so
             // we use the raw version here instead
-            pam_sys::raw::pam_set_item(self.handle, item as i32, s.as_ptr() as *const c_void)
+            pam_sys::raw::pam_set_item(self.handle, item as i32, s.as_ptr().cast::<c_void>())
         });
         match self.last_code {
             PamReturnCode::SUCCESS => Ok(()),

@@ -38,18 +38,14 @@ impl Drop for Terminal {
 
 fn ttyname_r(fd: RawFd) -> Result<String, Error> {
     let mut arr: [u8; 32] = [0; 32];
-    let res = unsafe {
-        libc::ttyname_r(
-            fd as libc::c_int,
-            &mut arr[0] as *mut u8 as *mut libc::c_char,
-            31,
-        )
-    };
+    let buf = (&raw mut arr[0]).cast::<libc::c_char>();
+    let res = unsafe { libc::ttyname_r(fd as libc::c_int, buf, 31) };
     if res != 0 {
         return Err("ttyname_r failed".into());
     }
-    let len = unsafe { libc::strnlen(&arr[0] as *const u8 as *const libc::c_char, 31) };
-    let s = CStr::from_bytes_with_nul(&arr[..len + 1])
+    let cs = (&raw const arr[0]).cast::<libc::c_char>();
+    let len = unsafe { libc::strnlen(cs, 31) };
+    let s = CStr::from_bytes_with_nul(&arr[..=len])
         .map_err(|e| Error::Error(format!("ttyname_r result conversion failed: {e}")))?;
     Ok(s.to_str()
         .map_err(|e| Error::Error(format!("ttyname_r result conversion failed: {e}")))?
@@ -174,7 +170,7 @@ impl Terminal {
             v_signal: 0,
             v_state: 0,
         };
-        let res = unsafe { ioctl::vt_getstate(self.fd, &mut state as *mut ioctl::vt_state) };
+        let res = unsafe { ioctl::vt_getstate(self.fd, &raw mut state) };
 
         if let Err(v) = res {
             Err(format!("terminal: unable to get current vt: {v}").into())
@@ -190,7 +186,7 @@ impl Terminal {
     /// and use the VT before you get to it.
     pub fn vt_get_next(&self) -> Result<usize, Error> {
         let mut next_vt: i64 = 0;
-        let res = unsafe { ioctl::vt_openqry(self.fd, &mut next_vt as *mut i64) };
+        let res = unsafe { ioctl::vt_openqry(self.fd, &raw mut next_vt) };
 
         if let Err(v) = res {
             Err(format!("terminal: unable to get next vt: {v}").into())
