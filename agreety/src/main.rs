@@ -172,10 +172,7 @@ fn main() {
             std::process::exit(1)
         }
     };
-    let user: Option<String> = match matches.opt_get("user") {
-        Ok(s) => s,
-        Err(_) => None,
-    };
+    let user: Option<String> = matches.opt_get("user").unwrap_or_default();
 
     if let Ok(issue) = get_issue() {
         print!("{issue}");
