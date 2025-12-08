@@ -20,9 +20,7 @@ pub fn make_conversation(conv: &mut PamConvHandlerWrapper) -> PamConversation {
 
 unsafe fn to_cstr(mut s: String) -> *mut c_char {
     let a = calloc(1, s.len() + 1) as *mut c_char;
-    if a.is_null() {
-        panic!("unable to allocate C string");
-    }
+    assert!(!a.is_null(), "unable to allocate C string");
     memcpy(a as *mut c_void, s.as_ptr() as *const c_void, s.len());
     s.scramble();
     return a;
