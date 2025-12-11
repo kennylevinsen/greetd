@@ -50,6 +50,14 @@ impl<'a> PamSession<'a> {
         }
     }
 
+    pub fn change_auth_token(&mut self, flags: PamFlag) -> Result<(), PamError> {
+        self.last_code = pam_sys::chauthtok(self.handle, flags);
+        match self.last_code {
+            PamReturnCode::SUCCESS => Ok(()),
+            rc => Err(PamError::from_rc("pam_chauthtok", rc)),
+        }
+    }
+
     pub fn acct_mgmt(&mut self, flags: PamFlag) -> Result<(), PamError> {
         self.last_code = pam_sys::acct_mgmt(self.handle, flags);
         match self.last_code {

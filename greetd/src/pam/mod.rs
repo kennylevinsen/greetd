@@ -13,6 +13,8 @@ pub enum PamError {
     Error(String),
     #[error("{0}")]
     AuthError(String),
+    #[error("new auth token required: {0}")]
+    NewAuthTokenRequired(String),
     #[error("abort error: {0}")]
     AbortError(String),
 }
@@ -29,6 +31,9 @@ impl PamError {
             | PamReturnCode::USER_UNKNOWN
             | PamReturnCode::PERM_DENIED
             | PamReturnCode::SERVICE_ERR => PamError::AuthError(format!("{prefix}: {rc:?}")),
+            PamReturnCode::NEW_AUTHTOK_REQD => {
+                PamError::NewAuthTokenRequired(format!("{prefix}: {rc:?}"))
+            }
             _ => PamError::Error(format!("{prefix}: {rc:?}")),
         }
     }

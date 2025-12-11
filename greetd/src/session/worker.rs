@@ -11,7 +11,11 @@ use super::{
     conv::SessionConv,
     prctl::{prctl, PrctlOption},
 };
-use crate::{error::Error, pam::session::PamSession, terminal};
+use crate::{
+    error::Error,
+    pam::{session::PamSession, PamError},
+    terminal,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AuthMessageType {
@@ -129,7 +133,13 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     if authenticate {
         pam.authenticate(PamFlag::NONE)?;
     }
-    pam.acct_mgmt(PamFlag::NONE)?;
+    match pam.acct_mgmt(PamFlag::NONE) {
+        Err(PamError::NewAuthTokenRequired(_)) => {
+            pam.change_auth_token(PamFlag::CHANGE_EXPIRED_AUTHTOK)?;
+        }
+        Err(e) => return Err(e.into()),
+        _ => {}
+    };
 
     // Not the credentials you think.
     pam.setcred(PamFlag::ESTABLISH_CRED)?;
