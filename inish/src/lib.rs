@@ -63,8 +63,14 @@ mod tests {
         )
         .expect("config didn't parse");
 
-        assert!(config.contains_key("section_a"), "named section should exist");
-        assert!(config.contains_key("section_b"), "named section should exist");
+        assert!(
+            config.contains_key("section_a"),
+            "named section should exist"
+        );
+        assert!(
+            config.contains_key("section_b"),
+            "named section should exist"
+        );
         assert!(config.contains_key(""), "unnamed section should exist")
     }
 
