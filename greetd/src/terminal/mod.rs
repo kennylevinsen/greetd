@@ -6,7 +6,10 @@ use nix::{
     sys::stat::Mode,
     unistd::{close, dup2, write},
 };
-use std::{ffi::CStr, os::unix::io::RawFd};
+use std::{
+    ffi::CStr,
+    os::unix::io::{BorrowedFd, RawFd},
+};
 
 #[allow(dead_code)]
 pub enum KdMode {
@@ -214,7 +217,7 @@ impl Terminal {
     /// Clear this terminal by sending the appropciate escape codes to it. Only
     /// affects text mode.
     pub fn term_clear(&self) -> Result<(), Error> {
-        let res = write(self.fd, b"\x1B[H\x1B[2J");
+        let res = write(unsafe { BorrowedFd::borrow_raw(self.fd) }, b"\x1B[H\x1B[2J");
         if let Err(v) = res {
             Err(format!("terminal: unable to clear: {v}").into())
         } else {
