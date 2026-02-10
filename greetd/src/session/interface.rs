@@ -104,16 +104,17 @@ impl Session {
         cur_flags.remove(FdFlag::FD_CLOEXEC);
         fcntl(raw_child, FcntlArg::F_SETFD(cur_flags))?;
 
-        let cur_exe = std::env::current_exe()?;
-        let bin = CString::new(cur_exe.to_str().expect("unable to get current exe name"))?;
-
+        // On Linux, /proc/self/exe is a reference to the original file, which remains valid
+        // in spite of unlink or rename similar to an already open fd. It is, however, not very
+        // portable. On FreeBSD, we would likely need to open our own process file early and rely
+        // on fexecve, using the KERN_PROC_PATHNAME sysctl to get the path.
         let child = match unsafe { fork() }.map_err(|e| format!("unable to fork: {e}"))? {
             ForkResult::Parent { child, .. } => child,
             ForkResult::Child => {
                 execv(
-                    &bin,
+                    &CString::new("/proc/self/exe").unwrap(),
                     &[
-                        &bin,
+                        &CString::new("greetd").unwrap(),
                         &CString::new("--session-worker").unwrap(),
                         &CString::new(format!("{}", raw_child as usize)).unwrap(),
                     ],
