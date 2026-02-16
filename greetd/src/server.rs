@@ -249,7 +249,18 @@ pub async fn main(config: Config) -> Result<(), Error> {
     ));
 
     if let (Some(s), true) = (config.file.initial_session, ctx.is_first_run()) {
-        if let Err(e) = ctx.start_user_session(&s.user, vec![s.command]).await {
+        let initial_service = if Path::new(&format!("/etc/pam.d/{}", s.service)).exists() {
+            &s.service
+        } else if Path::new(&format!("/usr/lib/pam.d/{}", s.service)).exists() {
+            &s.service
+        } else {
+            service
+        };
+
+        if let Err(e) = ctx
+            .start_user_session(&s.user, initial_service, vec![s.command])
+            .await
+        {
             eprintln!("unable to start greeter: {e}");
             reset_vt(&term_mode).map_err(|e| format!("unable to reset VT: {e}"))?;
 

@@ -336,6 +336,36 @@ user = \"john\"
                 }),
             }
         );
+        let config = parse_config(
+            "
+[terminal]\nvt = 1\n[default_session]\ncommand = \"agreety\"
+[initial_session]
+command = \"sway\"
+user = \"john\"
+service = \"greetd-autologin\"
+",
+        )
+        .expect("config didn't parse");
+        assert_eq!(
+            config,
+            ConfigFile {
+                terminal: ConfigTerminal {
+                    vt: VtSelection::Specific(1),
+                    switch: true,
+                },
+                default_session: ConfigSession {
+                    command: "agreety".to_string(),
+                    user: "greeter".to_string(),
+                    service: "greetd-greeter".to_string(),
+                },
+                general: Default::default(),
+                initial_session: Some(ConfigSession {
+                    command: "sway".to_string(),
+                    user: "john".to_string(),
+                    service: "greetd-autologin".to_string(),
+                }),
+            }
+        );
     }
 
     #[test]

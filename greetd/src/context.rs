@@ -156,7 +156,12 @@ impl Context {
     }
 
     /// Directly start an initial session, bypassing the normal scheduling.
-    pub async fn start_user_session(&self, user: &str, cmd: Vec<String>) -> Result<(), Error> {
+    pub async fn start_user_session(
+        &self,
+        user: &str,
+        service: &str,
+        cmd: Vec<String>,
+    ) -> Result<(), Error> {
         {
             let inner = self.inner.read().await;
             if inner.current.is_some() {
@@ -167,7 +172,7 @@ impl Context {
         let mut inner = self.inner.write().await;
         inner.current = Some(SessionChildSet {
             child: self
-                .start_unauthenticated_session(SessionClass::User, user, &self.pam_service, cmd)
+                .start_unauthenticated_session(SessionClass::User, user, service, cmd)
                 .await?,
             time: Instant::now(),
             is_greeter: false,
