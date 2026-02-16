@@ -169,6 +169,11 @@ fn get_tty(config: &Config) -> Result<TerminalMode, Error> {
     return Ok(term);
 }
 
+fn pam_service_exists(service: &str) -> bool {
+    Path::new(&format!("/etc/pam.d/{}", service)).exists()
+        || Path::new(&format!("/usr/lib/pam.d/{}", service)).exists()
+}
+
 // Listener is a convenience wrapper for creating the UnixListener we need, and
 // for providing cleanup on Drop.
 struct Listener(UnixListener);
@@ -198,27 +203,13 @@ impl Drop for Listener {
 }
 
 pub async fn main(config: Config) -> Result<(), Error> {
-    let service = if Path::new(&format!("/etc/pam.d/{}", config.file.general.service)).exists() {
-        &config.file.general.service
-    } else if Path::new(&format!("/usr/lib/pam.d/{}", config.file.general.service)).exists() {
+    let service = if pam_service_exists(&config.file.general.service) {
         &config.file.general.service
     } else {
         return Err(format!("PAM '{}' service missing", config.file.general.service).into());
     };
 
-    let greeter_service = if Path::new(&format!(
-        "/etc/pam.d/{}",
-        config.file.default_session.service
-    ))
-    .exists()
-    {
-        &config.file.default_session.service
-    } else if Path::new(&format!(
-        "/usr/lib/pam.d/{}",
-        config.file.default_session.service
-    ))
-    .exists()
-    {
+    let greeter_service = if pam_service_exists(&config.file.default_session.service) {
         &config.file.default_session.service
     } else {
         service
@@ -249,9 +240,7 @@ pub async fn main(config: Config) -> Result<(), Error> {
     ));
 
     if let (Some(s), true) = (config.file.initial_session, ctx.is_first_run()) {
-        let initial_service = if Path::new(&format!("/etc/pam.d/{}", s.service)).exists() {
-            &s.service
-        } else if Path::new(&format!("/usr/lib/pam.d/{}", s.service)).exists() {
+        let initial_service = if pam_service_exists(&s.service) {
             &s.service
         } else {
             service
