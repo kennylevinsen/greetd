@@ -179,7 +179,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     match tty {
         TerminalMode::Stdin => (),
         TerminalMode::Terminal { path, vt, switch } => {
-            // Tell PAM what TTY we're targetting, which is used by logind.
+            // Tell PAM what TTY we're targeting, which is used by logind.
             pam.set_item(PamItemType::TTY, &format!("tty{vt}"))?;
             pam.putenv(&format!("XDG_VTNR={vt}"))?;
 
@@ -232,7 +232,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     pam.open_session(PamFlag::NONE)?;
 
     // We are done with PAM, clear variables that the child will not need.
-    _ = pam.putenv(&"XDG_SESSION_CLASS");
+    _ = pam.putenv("XDG_SESSION_CLASS");
 
     // Prepare some strings in C format that we'll need.
     let cusername = CString::new(user.name)?;
@@ -252,6 +252,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     // PAM is weird and gets upset if you exec from the process that opened
     // the session, registering it automatically as a log-out. Thus, we must
     // exec in a new child.
+    #[allow(unreachable_code)]
     let child = match unsafe { fork() }.map_err(|e| format!("unable to fork: {e}"))? {
         ForkResult::Parent { child, .. } => child,
         ForkResult::Child => {
@@ -275,6 +276,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
 
             // Run
             let cpath = CString::new("/bin/sh").unwrap();
+
             execve(
                 &cpath,
                 &[

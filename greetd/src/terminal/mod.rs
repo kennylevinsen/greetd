@@ -68,7 +68,7 @@ impl Terminal {
                 fd,
                 autoclose: true,
             }),
-            Err(e) => return Err(format!("terminal: unable to open: {e}").into()),
+            Err(e) => Err(format!("terminal: unable to open: {e}").into()),
         }
     }
 

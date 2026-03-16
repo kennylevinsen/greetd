@@ -166,7 +166,7 @@ fn get_tty(config: &Config) -> Result<TerminalMode, Error> {
             switch: config.file.terminal.switch,
         },
     };
-    return Ok(term);
+    Ok(term)
 }
 
 fn pam_service_exists(service: &str) -> bool {

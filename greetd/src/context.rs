@@ -51,6 +51,7 @@ pub struct Context {
 }
 
 impl Context {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         greeter_bin: String,
         greeter_user: String,
@@ -266,7 +267,7 @@ impl Context {
                 if let Some(mut answer) = answer {
                     answer.scramble();
                 }
-                return Err("no session under configuration".into());
+                Err("no session under configuration".into())
             }
         }
     }

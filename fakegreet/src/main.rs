@@ -68,6 +68,7 @@ impl Context {
         }
     }
 
+    #[allow(clippy::await_holding_refcell_ref)]
     async fn post_response(&self, response: Option<String>) -> Result<(), Error> {
         let mut s = self.inner.borrow_mut();
         if s.ok {
@@ -82,6 +83,7 @@ impl Context {
                 || s.password != Some("password".to_string())
                 || response != Some("9".to_string())
             {
+                drop(s);
                 sleep(Duration::from_millis(2000)).await;
                 return Err(Error::AuthError("nope".to_string()));
             }
