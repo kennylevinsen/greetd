@@ -1,8 +1,8 @@
 [Unit]
 Description=Greeter daemon
 After=systemd-user-sessions.service plymouth-quit-wait.service
-After=getty@tty1.service
-Conflicts=getty@tty1.service
+After=getty@tty1.service kmsconvt@tty1.service
+Conflicts=getty@tty1.service kmsconvt@tty1.service
 
 [Service]
 Type=simple
