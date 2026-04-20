@@ -3,6 +3,7 @@ use std::convert::From;
 use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, ThisError, Clone, Deserialize, Serialize)]
 pub enum Error {
     #[error("{0}")]

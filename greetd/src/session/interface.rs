@@ -108,6 +108,7 @@ impl Session {
         // in spite of unlink or rename similar to an already open fd. It is, however, not very
         // portable. On FreeBSD, we would likely need to open our own process file early and rely
         // on fexecve, using the KERN_PROC_PATHNAME sysctl to get the path.
+        #[allow(unreachable_code)]
         let child = match unsafe { fork() }.map_err(|e| format!("unable to fork: {e}"))? {
             ForkResult::Parent { child, .. } => child,
             ForkResult::Child => {
@@ -133,6 +134,7 @@ impl Session {
     }
 
     /// Initiates the session, which will cause authentication to begin.
+    #[allow(clippy::too_many_arguments)]
     pub async fn initiate(
         &mut self,
         service: &str,
@@ -144,13 +146,13 @@ impl Session {
         listener_path: &str,
     ) -> Result<(), Error> {
         let msg = ParentToSessionChild::InitiateLogin {
-            service: service,
-            class: class,
-            user: user,
+            service,
+            class,
+            user,
             authenticate,
             tty: term_mode.clone(),
             source_profile,
-            listener_path: listener_path,
+            listener_path,
         };
         msg.send(&mut self.sock).await?;
         Ok(())

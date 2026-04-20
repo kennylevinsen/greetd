@@ -20,8 +20,8 @@ impl<T: Default> Scrambler for Vec<T> {
 impl Scrambler for String {
     fn scramble(&mut self) {
         let v = unsafe { self.as_mut_vec() };
-        for idx in 0..v.len() {
-            v[idx] = 0
+        for v_iter in v.iter_mut() {
+            *v_iter = 0
         }
         self.truncate(0);
     }
