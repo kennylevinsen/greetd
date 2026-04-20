@@ -165,7 +165,11 @@ pub async fn server() -> Result<(), Error> {
     let listener =
         UnixListener::bind(&path).map_err(|e| format!("unable to open listener: {e}"))?;
 
-    let arg = env::args().nth(1).expect("need argument");
+    let args: Vec<String> = env::args().skip(1).collect();
+    if args.is_empty() {
+        panic!("need argument");
+    }
+    let arg = args.join(" ");
     let _ = Command::new("sh")
         .arg("-c")
         .arg(arg)
