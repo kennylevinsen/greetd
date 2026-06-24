@@ -23,6 +23,7 @@ See the [wiki](https://man.sr.ht/~kennylevinsen/greetd) for FAQ, guides for comm
 - [greetd-qmlgreet](https://github.com/Decodetalkers/greetd-qmlgreet) - Qt6 qml greetd (using ext-session-shell, to be used with something like `river` and `sway`)
 - [Phog](https://gitlab.com/mobian1/phog) - Obsolete, use Phrog instead.
 - [Phrog](https://github.com/samcday/phrog) - A greeter that works on mobile devices and also other kinds of computers.
+- [sgreet](https://github.com/64-bitman/sgreet) - like agreety or agetty, but nicer
 
 Patches expanding the list welcome.
 
