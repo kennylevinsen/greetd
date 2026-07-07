@@ -1,6 +1,6 @@
 //! Reader/writer codecs for Request/Response.
 //!
-//! This is implemented in the form of two traits, SyncCodec and TokioCodec,
+//! This is implemented in the form of two traits, `SyncCodec` and `TokioCodec`,
 //! which operate on the `std` and `tokio` implementations of reader/writer
 //! traits. The former is intended as the name suggests for synchronous
 //! operation, while the latter is for asynchronous operation when using tokio.

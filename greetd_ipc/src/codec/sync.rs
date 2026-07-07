@@ -1,4 +1,5 @@
-//! Synchronous reader/writer implementation, operating on an implementor of std::io::{Read, Write}.
+//! Synchronous reader/writer implementation, operating on an implementer of [`std::io::Read`] and
+//! [`std::io::Write`].
 //!
 //! # Example
 //!
@@ -19,7 +20,7 @@
 use crate::{codec::Error, Request, Response};
 use std::io::{Read, Write};
 
-/// Reader/writer implementation over std::io::{Read,Write}.
+/// Reader/writer implementation over [`std::io::Read`] and [`std::io::Write`].
 pub trait SyncCodec {
     fn read_from<T: Read>(stream: &mut T) -> Result<Self, Error>
     where

@@ -1,4 +1,5 @@
-//! Asynchronous reader/writer implementation, operating on an implementor of tokio::io::{AsyncReadExt, AsyncWriteExt}.
+//! Asynchronous reader/writer implementation, operating on an implementer of
+//! [`tokio::io::AsyncReadExt`] and [`tokio::io::AsyncWriteExt`].
 //!
 //! # Example
 //!
@@ -20,7 +21,7 @@ use crate::{codec::Error, Request, Response};
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-/// Reader/writer implementation over tokio::io::{AsyncReadExt, AsyncWriteExt}.
+/// Reader/writer implementation over [`tokio::io::AsyncReadExt`] and [`tokio::io::AsyncWriteExt`].
 #[async_trait]
 pub trait TokioCodec {
     async fn read_from<T: AsyncReadExt + std::marker::Unpin + Send>(

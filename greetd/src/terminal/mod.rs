@@ -118,7 +118,7 @@ impl Terminal {
         Ok(())
     }
 
-    /// Set the VT mode to VT_AUTO with everything cleared.
+    /// Set the VT mode to `VT_AUTO` with everything cleared.
     fn vt_mode_clean(&self) -> Result<(), Error> {
         let mode = ioctl::vt_mode {
             mode: ioctl::VT_AUTO,
@@ -137,10 +137,10 @@ impl Terminal {
     }
 
     /// Set a VT mode, switch to the VT and wait for its activation. On Linux,
-    /// this will use VT_SETACTIVATE, which will both set the mode and switch
+    /// this will use `VT_SETACTIVATE`, which will both set the mode and switch
     /// to the VT under the kernel console lock. On other platforms,
-    /// VT_SETMODE followed by VT_ACTIVATE is used. For all platforms,
-    /// VT_WAITACTIVE is used to wait for shell activation.
+    /// `VT_SETMODE` followed by `VT_ACTIVATE` is used. For all platforms,
+    /// `VT_WAITACTIVE` is used to wait for shell activation.
     pub fn vt_setactivate(&self, target_vt: usize) -> Result<(), Error> {
         if cfg!(target_os = "linux") {
             let arg = ioctl::vt_setactivate {

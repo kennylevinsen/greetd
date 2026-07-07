@@ -101,7 +101,7 @@ impl SessionChildToParent {
 
 /// The entry point for the session worker process. The session worker is
 /// responsible for the entirety of the session setup and execution. It is
-/// started by Session::start.
+/// started by [`crate::session::interface::Session::start`].
 fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     let mut data = [0; 10240];
     let (service, class, user, authenticate, tty, source_profile, listener_path) =

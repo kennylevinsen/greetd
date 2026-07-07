@@ -55,7 +55,7 @@ impl AsyncRecv<SessionChildToParent> for SessionChildToParent {
     }
 }
 
-/// SessionChild tracks the processes spawned by a session
+/// Tracks the processes spawned by a session
 pub struct SessionChild {
     pub task: Pid,
     pub sub_task: Pid,

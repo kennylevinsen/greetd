@@ -39,7 +39,7 @@ use serde::{Deserialize, Serialize};
 pub mod codec;
 
 /// A request from a greeter to greetd. The request type is internally tagged
-/// with the"type" field, with the type written in snake_case.
+/// with the "type" field, with the type written in `snake_case`.
 ///
 /// Example serialization:
 ///
@@ -53,25 +53,25 @@ pub mod codec;
 #[serde(rename_all = "snake_case")]
 #[serde(tag = "type")]
 pub enum Request {
-    /// CreateSession initiates a login attempt for the given user.
-    /// CreateSession returns either a Response::AuthMessage,
-    /// Response::Success or Response::Failure.
+    /// Initiates a login attempt for the given user.
+    ///
+    /// Returns either a [`Response::AuthMessage`], [`Response::Success`] or [`Response::Error`].
     ///
     /// If an auth message is returned, it should be answered with a
-    /// Request::PostAuthMessageResponse. If a success is returned, the session
-    /// can then be started with Request::StartSession.
+    /// [`Request::PostAuthMessageResponse`]. If a success is returned, the session
+    /// can then be started with [`Request::StartSession`].
     ///
     /// If a login flow needs to be aborted at any point, send
-    /// Request::CancelSession. Note that the session is cancelled
+    /// [`Request::CancelSession`]. Note that the session is cancelled
     /// automatically on error.
     CreateSession { username: String },
 
-    /// PostAuthMessageResponse responds to the last auth message, and returns
-    /// either a Response::AuthMessage, Response::Success or Response::Failure.
+    /// `PostAuthMessageResponse` responds to the last auth message, and returns
+    /// either a [`Response::AuthMessage`], [`Response::Success`] or [`Response::Error`].
     ///
     /// If an auth message is returned, it should be answered with a
-    /// Request::PostAuthMessageResponse. If a success is returned, the session
-    /// can then be started with Request::StartSession.
+    /// [`Request::PostAuthMessageResponse`]. If a success is returned, the session
+    /// can then be started with [`Request::StartSession`].
     PostAuthMessageResponse { response: Option<String> },
 
     /// Start a successfully logged in session. This will fail if the session
@@ -88,7 +88,7 @@ pub enum Request {
     CancelSession,
 }
 
-/// An error type for Response::Error. Serialized as snake_case.
+/// An error type for [`Response::Error`]. Serialized as `snake_case`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorType {
@@ -99,7 +99,7 @@ pub enum ErrorType {
     AuthError,
 }
 
-/// A message type for a Response::AuthMessage. Serialized as snake_case.
+/// A message type for a [`Response::AuthMessage`]. Serialized as `snake_case`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthMessageType {
@@ -117,7 +117,7 @@ pub enum AuthMessageType {
 }
 
 /// A response from greetd to a greeter. The request type is internally tagged
-/// with the"type" field, with the type written in snake_case.
+/// with the "type" field, with the type written in `snake_case`.
 ///
 /// Example serialization:
 ///
