@@ -228,6 +228,18 @@ pub async fn main(config: Config) -> Result<(), Error> {
         wait_vt(&term_mode).map_err(|e| format!("unable to wait VT: {e}"))?;
     }
 
+    // Seamless overlap hand-off: the user session runs on a SECOND VT (greeter VT + 1)
+    // so it can initialize on an inactive VT while the greeter keeps the display, then
+    // we VT-switch to it. Unused when overlap is disabled.
+    let session_term_mode = match (&term_mode, config.file.general.overlap_handoff) {
+        (TerminalMode::Terminal { vt, .. }, true) => TerminalMode::Terminal {
+            path: format!("/dev/tty{}", vt + 1),
+            vt: vt + 1,
+            switch: false,
+        },
+        _ => term_mode.clone(),
+    };
+
     let ctx = Rc::new(Context::new(
         config.file.default_session.command,
         config.file.default_session.user,
@@ -237,6 +249,9 @@ pub async fn main(config: Config) -> Result<(), Error> {
         config.file.general.source_profile,
         config.file.general.runfile,
         listener_path,
+        config.file.general.overlap_handoff,
+        config.file.general.overlap_switch_secs,
+        session_term_mode,
     ));
 
     if let (Some(s), true) = (config.file.initial_session, ctx.is_first_run()) {

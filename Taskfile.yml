@@ -1,0 +1,245 @@
+version: "3"
+
+vars:
+  # This is a cargo *workspace* with no root [package]; name the primary package
+  # explicitly and read the version from the greetd member's Cargo.toml.
+  NAME: greetd
+  VERSION:
+    sh: grep '^version =' greetd/Cargo.toml | head -n 1 | cut -d'"' -f2
+  HOST_OS:
+    sh: uname
+  HOST_ARCH:
+    sh: uname -m
+  TARGET_ARCH:
+    sh: "rustc -vV | sed -n 's/host: //p'"
+  ARCH:
+    sh: echo "{{.TARGET_ARCH}}" | cut -d'-' -f1
+  IMAGE_NAME: "{{.NAME}}-builder"
+  IMAGE_TAG:
+    sh: sha256sum Dockerfile | cut -d' ' -f1
+
+tasks:
+  default:
+    aliases:
+      - help
+    cmds:
+      - go-task --list
+
+  build:debug:
+    desc: Build debug build
+    cmds:
+      - cargo build {{.ARG | default ""}} --target {{.TARGET_ARCH}}
+
+  build:release:
+    desc: Build release build (whole workspace -> greetd + agreety)
+    aliases:
+      - build
+    cmds:
+      - cargo build --release --target {{.TARGET_ARCH}}
+
+  build:all:
+    desc: Build release and debug builds
+    deps:
+      - build:debug
+      - build:release
+
+  run:
+    deps:
+      - build:debug
+    requires:
+      vars:
+        - name: LOG_LEVEL
+          enum: [trace, debug, info]
+    vars:
+      LOG_LEVEL: '{{.LOG_LEVEL | default "info"}}'
+    env:
+      RUST_LOG: |-
+        {{- if eq .LOG_LEVEL "trace" }}
+        trace
+        {{- else if eq .LOG_LEVEL "debug" }}
+        debug
+        {{- else }}
+        info
+        {{- end }}
+    cmds:
+      - ./target/{{.TARGET_ARCH}}/debug/{{.NAME}}
+
+  dist:prepare:
+    desc: Prepare the project for packaging
+    deps:
+      - build:release
+    sources:
+      - target/{{.TARGET_ARCH}}/release/greetd
+      - target/{{.TARGET_ARCH}}/release/agreety
+    generates:
+      - .cache/{{.NAME}}/usr/bin/greetd
+      - .cache/{{.NAME}}/usr/bin/agreety
+    cmds:
+      - rm -rf .cache/{{.NAME}}
+      # Binaries: the greetd daemon + the bundled agreety text greeter.
+      - install -Dm0755 "target/{{.TARGET_ARCH}}/release/greetd" ".cache/{{.NAME}}/usr/bin/greetd"
+      - install -Dm0755 "target/{{.TARGET_ARCH}}/release/agreety" ".cache/{{.NAME}}/usr/bin/agreety"
+      # systemd unit + default config (repo root).
+      - install -Dm0644 "greetd.service" ".cache/{{.NAME}}/usr/lib/systemd/system/greetd.service"
+      - install -Dm0644 "config.toml" ".cache/{{.NAME}}/etc/greetd/config.toml"
+      # PAM services (mirrors Fedora's greetd package).
+      - install -Dm0644 "pkg/greetd.pam" ".cache/{{.NAME}}/etc/pam.d/greetd"
+      - install -Dm0644 "pkg/greetd-greeter.pam" ".cache/{{.NAME}}/etc/pam.d/greetd-greeter"
+      # System user + state dir provisioning.
+      - install -Dm0644 "pkg/greetd.sysusers" ".cache/{{.NAME}}/usr/lib/sysusers.d/greetd.conf"
+      - install -Dm0644 "pkg/greetd.tmpfiles" ".cache/{{.NAME}}/usr/lib/tmpfiles.d/greetd.conf"
+      - install -Dm0644 "LICENSE" ".cache/{{.NAME}}/usr/share/licenses/{{.NAME}}/LICENSE"
+      - mkdir -p dist
+
+  dist:archive:
+    desc: Build a tar archive of the project
+    deps:
+      - dist:prepare
+    sources:
+      - .cache/{{.NAME}}/**/*
+    generates:
+      - dist/{{.NAME}}-{{.ARCH}}.tar.gz
+    cmds:
+      - tar cvfz dist/{{.NAME}}-{{.ARCH}}.tar.gz -C .cache {{.NAME}}
+
+  dist:rpm:
+    desc: Build an RPM package
+    aliases:
+      - rpm
+    deps:
+      - dist:archive
+    preconditions:
+      - sh: which rpmbuild
+        msg: "Prerequisite utility 'rpmbuild' is not installed"
+    cmds:
+      - mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+      - cp ./pkg/rpm/{{.NAME}}.spec ~/rpmbuild/SPECS
+      - cp dist/{{.NAME}}-{{.ARCH}}.tar.gz ~/rpmbuild/SOURCES
+      - rpmbuild -bb --target {{.ARCH}} ~/rpmbuild/SPECS/{{.NAME}}.spec
+      - cp ~/rpmbuild/RPMS/{{.ARCH}}/{{.NAME}}-{{.VERSION}}-*.{{.ARCH}}.rpm dist
+
+  dist:all:
+    desc: Build all supported distributable packages
+    aliases:
+      - dist
+    cmds:
+      - task: dist:archive
+      - task: dist:rpm
+
+  release:
+    desc: Publish a new release
+    preconditions:
+      - sh: which npx
+        msg: "Prerequisite utility 'npx' is not installed"
+    cmds:
+      # The .releaserc.yaml config contains the build commands and publish config
+      - npx semantic-release
+
+  repo:update:
+    desc: "Upload the release to the package repository"
+    vars:
+      BUCKET: playtron-dev2-global-os-public
+      BUCKET_PATH: repos/playtron-app/{{.ARCH}}
+      FILE: "dist/{{.NAME}}-{{.VERSION}}-1.{{.ARCH}}.rpm"
+      REPO_NAME: playtron
+    preconditions:
+      - sh: ls {{.FILE}}
+        msg: "File to upload does not exist: {{.FILE}}"
+      - sh: env | grep -q '^PACKAGES_UPLOAD_TOKEN='
+        msg: "PACKAGES_UPLOAD_TOKEN environment variable is not set"
+    cmds:
+      # TODO: Remove S3 uploads after repository switch
+      - echo "Uploading {{.FILE}} to s3://{{.BUCKET}}/{{.BUCKET_PATH}}/$(basename {{.FILE}})"
+      - aws s3 cp {{.FILE}} s3://{{.BUCKET}}/{{.BUCKET_PATH}}/$(basename "{{.FILE}}")
+      - echo "Publishing {{.FILE}} to 'https://packages.playtron.one/rpm/{{.REPO_NAME}}/packages/{{.NAME}}-{{.VERSION}}-1.{{.ARCH}}.rpm'"
+      - "curl -H 'Authorization: Bearer {{.PACKAGES_UPLOAD_TOKEN}}' -T {{.FILE}} 'https://packages.playtron.one/rpm/{{.REPO_NAME}}/packages/{{.NAME}}-{{.VERSION}}-1.{{.ARCH}}.rpm'"
+
+  test:all:
+    desc: Run all tests
+    aliases:
+      - test
+    cmds:
+      - cargo test -- --show-output
+
+  test:one:
+    desc: Run a single test - E.g. go-task test:one TEST=<test>
+    requires:
+      vars:
+        - TEST
+    cmds:
+      - RUST_BACKTRACE=1 cargo test {{.TEST}} -- --exact --show-output --include-ignored
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -rf target .cache dist builder
+
+  docker:build:
+    desc: Build the container image used for the `docker:run` target
+    preconditions:
+      - sh: which docker
+        msg: "Prerequisite utility 'docker' is not installed"
+    status:
+      - docker images | grep {{.IMAGE_NAME}} | grep {{.IMAGE_TAG}}
+    cmds:
+      - docker build -t {{.IMAGE_NAME}}:{{.IMAGE_TAG}} .
+
+  docker:run:
+    desc: Run tasks inside Docker. E.g. go-task docker:run TARGET=build TARGET_ARCH=x86_64-unknown-linux-gnu
+    aliases:
+      - in-docker
+    deps:
+      - docker:build
+    preconditions:
+      - sh: which docker
+        msg: "Prerequisite utility 'docker' is not installed"
+    vars:
+      UID:
+        sh: id -u
+      GID:
+        sh: id -g
+      PWD:
+        sh: pwd
+      SSH_KEY:
+        sh: echo "${SSH_KEY}"
+      # Rootless podman needs SELinux relabel-off + keep-id so the --user 1000
+      # process can read the bind-mounted repo and write CARGO_HOME. Real Docker
+      # (CI) needs neither and rejects --userns=keep-id, so only add these when
+      # `docker` is actually podman.
+      CONTAINER_OPTS:
+        sh: 'docker --version 2>/dev/null | grep -qi podman && echo "--security-opt label=disable --userns=keep-id" || echo ""'
+    requires:
+      vars:
+        - TARGET
+    cmds:
+      - mkdir -p .cache/home
+      - mkdir -p .cache/var/lib/rpm
+      # A /etc/passwd entry is required so the correct ~/.ssh path is used
+      - echo -e "build:x:{{.UID}}:{{.GID}}::/home/build:/bin/bash" > .cache/passwd
+      # Use the SSH key from the host
+      - |
+        mkdir -p .cache/.ssh
+        {{ if ne .SSH_KEY "" }}
+          echo "{{.SSH_KEY}}" > .cache/.ssh/id_ed25519
+          chmod 600 .cache/.ssh/id_ed25519
+        {{ else }}
+          cp ~/.ssh/* .cache/.ssh
+        {{ end }}
+      - |
+        docker run --rm \
+          {{.CONTAINER_OPTS}} \
+          -v "{{.PWD}}:{{.PWD}}" \
+          -v "{{.PWD}}/.cache/home:/home/build" \
+          -v "{{.PWD}}/.cache/var/lib/rpm:/var/lib/rpm" \
+          -v "{{.PWD}}/.cache/.ssh:/home/build/.ssh" \
+          -v "{{.PWD}}/.cache/passwd:/etc/passwd" \
+          --workdir "{{.PWD}}" \
+          -e HOME=/home/build \
+          -e CARGO_HOME=/home/build/.cargo \
+          -e BUILD_TYPE=${BUILD_TYPE} \
+          -e PKG_CONFIG_SYSROOT_DIR="/usr/{{.ARCH}}-linux-gnu" \
+          -e CARGO_NET_GIT_FETCH_WITH_CLI=true \
+          -e GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
+          --user {{.UID}}:{{.GID}} \
+          {{.IMAGE_NAME}}:{{.IMAGE_TAG}} \
+          task {{.TARGET}} ARCH={{.ARCH}} TARGET_ARCH={{.TARGET_ARCH}}

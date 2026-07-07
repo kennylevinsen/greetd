@@ -1,0 +1,2 @@
+#Type Name   ID    GECOS           Home directory  Shell
+u     greetd -     "greetd daemon" /var/lib/greetd

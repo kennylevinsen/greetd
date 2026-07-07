@@ -17,8 +17,16 @@ use crate::{
         interface::{Session, SessionChild, SessionState},
         worker::{AuthMessageType as SessAuthMessageType, SessionClass, TerminalMode},
     },
+    terminal::Terminal,
 };
 use greetd_ipc::AuthMessageType;
+
+/// Activate (switch to) the given VT. Used by the overlap hand-off to bring the
+/// pre-started session's VT to the foreground.
+fn switch_vt(vt: usize) -> Result<(), Error> {
+    let term = Terminal::open("/dev/tty0").map_err(|e| Error::Error(format!("open tty0: {e}")))?;
+    term.vt_setactivate(vt)
+}
 
 struct SessionChildSet {
     child: SessionChild,
@@ -35,6 +43,7 @@ struct ContextInner {
     current: Option<SessionChildSet>,
     scheduled: Option<SessionSet>,
     configuring: Option<SessionSet>,
+    overlapping: Option<SessionChildSet>,
 }
 
 /// Context keeps track of running sessions and start new ones.
@@ -48,6 +57,13 @@ pub struct Context {
     source_profile: bool,
     runfile: String,
     listener_path: String,
+    // Seamless overlap hand-off (opt-in). When enabled, the user session is started
+    // on `session_term_mode` (a SECOND, inactive VT) while the greeter stays live on
+    // `term_mode`; after `overlap_switch_secs` we VT-switch to the session and reap
+    // the greeter. Default off → the classic kill-greeter-then-start behavior.
+    overlap: bool,
+    overlap_switch_secs: u32,
+    session_term_mode: TerminalMode,
 }
 
 impl Context {
@@ -61,12 +77,16 @@ impl Context {
         source_profile: bool,
         runfile: String,
         listener_path: String,
+        overlap: bool,
+        overlap_switch_secs: u32,
+        session_term_mode: TerminalMode,
     ) -> Context {
         Context {
             inner: RwLock::new(ContextInner {
                 current: None,
                 scheduled: None,
                 configuring: None,
+                overlapping: None,
             }),
             greeter_bin,
             greeter_user,
@@ -76,6 +96,9 @@ impl Context {
             source_profile,
             runfile,
             listener_path,
+            overlap,
+            overlap_switch_secs,
+            session_term_mode,
         }
     }
 
@@ -207,7 +230,11 @@ impl Context {
                 SessionClass::User,
                 &username,
                 true,
-                &self.term_mode,
+                if self.overlap {
+                    &self.session_term_mode
+                } else {
+                    &self.term_mode
+                },
                 self.source_profile,
                 &self.listener_path,
             )
@@ -291,10 +318,32 @@ impl Context {
                         p.session.cancel().await?;
                     }
 
-                    // We give the greeter 5 seconds to prove itself well-behaved before
-                    // we lose patience and shoot it in the back repeatedly. This is all
-                    // handled by our alarm handler.
-                    alarm::set(5);
+                    if self.overlap {
+                        // Seamless hand-off: start the user session NOW, on its own
+                        // inactive VT, while the greeter stays live and keeps the
+                        // display. (Requires the greeter to NOT self-terminate on
+                        // `success` — it must stay rendering until we SIGTERM it.)
+                        let scheduled = self.inner.write().await.scheduled.take();
+                        if let Some(mut p) = scheduled {
+                            let child = p.session.start().await.map_err(|e| {
+                                Error::Error(format!("overlap session start failed: {e}"))
+                            })?;
+                            self.inner.write().await.overlapping = Some(SessionChildSet {
+                                child,
+                                time: Instant::now(),
+                                is_greeter: false,
+                            });
+                        }
+                        // Give the session time to init + render its first frame on
+                        // the inactive VT before we switch. v1: a fixed delay; a
+                        // "visually ready" signal from the compositor replaces this.
+                        alarm::set(self.overlap_switch_secs.max(1));
+                    } else {
+                        // Classic path: the greeter self-terminates on success, then
+                        // the scheduled session starts (check_children). We give the
+                        // greeter 5 seconds before force-killing it (alarm handler).
+                        alarm::set(5);
+                    }
 
                     Ok(())
                 }
@@ -306,6 +355,25 @@ impl Context {
 
     /// Notify the Context of an alarm.
     pub async fn alarm(&self) -> Result<(), Error> {
+        if self.overlap {
+            let mut inner = self.inner.write().await;
+            if let Some(session) = inner.overlapping.take() {
+                if let TerminalMode::Terminal { vt, .. } = self.session_term_mode {
+                    if let Err(e) = switch_vt(vt) {
+                        // Switch failed: keep the display on the greeter, surface error.
+                        inner.overlapping = Some(session);
+                        return Err(format!("overlap vt switch to {vt} failed: {e}").into());
+                    }
+                }
+                if let Some(greeter) = inner.current.take() {
+                    greeter.child.term();
+                }
+                inner.current = Some(session);
+                return Ok(());
+            }
+            // No overlap pending — fall through to the classic behavior below.
+        }
+
         // Keep trying to terminate the greeter until it gives up.
         let mut inner = self.inner.write().await;
 
@@ -350,6 +418,20 @@ impl Context {
                 // We got an exit, see if it's something we need to clean up.
                 Ok(WaitStatus::Exited(pid, ..)) | Ok(WaitStatus::Signaled(pid, ..)) => {
                     let mut inner = self.inner.write().await;
+
+                    // Overlap: if the pre-started (not-yet-switched) session died,
+                    // drop it and keep the greeter live — never switch to a dead VT.
+                    // The pending switch alarm will then find no overlap and no-op.
+                    if inner
+                        .overlapping
+                        .as_ref()
+                        .is_some_and(|o| o.child.owns_pid(pid))
+                    {
+                        inner.overlapping = None;
+                        drop(inner);
+                        continue;
+                    }
+
                     let (was_greeter, sesion_length) = match &inner.current {
                         Some(s) if s.child.owns_pid(pid) => {
                             let res = (s.is_greeter, s.time.elapsed());
@@ -358,6 +440,11 @@ impl Context {
                         }
                         _ => continue,
                     };
+
+                    if let Some(session) = inner.overlapping.take() {
+                        inner.current = Some(session);
+                        continue;
+                    }
 
                     match inner.scheduled.take() {
                         Some(mut scheduled) => {
@@ -415,6 +502,9 @@ impl Context {
         }
         if let Some(mut sess) = inner.scheduled.take() {
             let _ = sess.session.cancel().await;
+        }
+        if let Some(sess) = inner.overlapping.take() {
+            sess.child.term();
         }
         if let Some(sess) = inner.current.take() {
             sess.child.term();

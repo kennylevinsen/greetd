@@ -57,6 +57,11 @@ pub struct ConfigGeneral {
     pub source_profile: bool,
     pub runfile: String,
     pub service: String,
+    /// Seamless overlap hand-off: start the user session on a second, inactive VT
+    /// while the greeter stays live, then VT-switch to it. Off by default.
+    pub overlap_handoff: bool,
+    /// Seconds to let the session initialize on its inactive VT before switching.
+    pub overlap_switch_secs: u32,
 }
 
 impl Default for ConfigGeneral {
@@ -65,6 +70,8 @@ impl Default for ConfigGeneral {
             source_profile: true,
             runfile: RUNFILE.to_string(),
             service: GENERAL_SERVICE.to_string(),
+            overlap_handoff: false,
+            overlap_switch_secs: 3,
         }
     }
 }
@@ -116,6 +123,16 @@ fn parse_config(config_str: &str) -> Result<ConfigFile, Error> {
                     .map_err(|e| format!("could not parse source_profile: {e}"))?,
                 runfile,
                 service,
+                overlap_handoff: section
+                    .get("overlap_handoff")
+                    .unwrap_or(&"false")
+                    .parse()
+                    .map_err(|e| format!("could not parse overlap_handoff: {e}"))?,
+                overlap_switch_secs: section
+                    .get("overlap_switch_secs")
+                    .unwrap_or(&"3")
+                    .parse()
+                    .map_err(|e| format!("could not parse overlap_switch_secs: {e}"))?,
             }
         }
 

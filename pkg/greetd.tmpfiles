@@ -1,0 +1,3 @@
+#  Path            Mode User   Group  Age Argument
+# Dynamic users/groups are not stable across builds (see also: https://pagure.io/fedora-kde/SIG/issue/87)
+Z  /var/lib/greetd -    greetd greetd -   -

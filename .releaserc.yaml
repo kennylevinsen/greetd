@@ -1,0 +1,50 @@
+# Semantic Release Configuration
+# https://semantic-release.gitbook.io/semantic-release/usage/configuration
+
+# Any merges into branches that match these patterns will trigger a release.
+branches:
+  - name: master
+  #- name: 'v+([0-9])?(.{+([0-9]),x}).x'
+
+# These plugins will run when a release is triggered. They will analyze commit
+# messages to determine what kind of release this is and publish a new release.
+plugins:
+  # Analyze commit messages to determine next version
+  - "@semantic-release/commit-analyzer"
+
+  # Generate release notes
+  - "@semantic-release/release-notes-generator"
+
+  # Generate release notes
+  - - "@semantic-release/changelog"
+    - changelogFile: CHANGELOG.md
+
+  # Replace version strings in the project. The 'git' plugin is needed to
+  # commit the version strings to the repository.
+  # Using exec + sed for Cargo.toml to only replace the FIRST version match
+  # (the greetd package version — this is a virtual workspace whose version
+  # lives in greetd/Cargo.toml). The replace plugin would replace ALL matches
+  # including dependency versions.
+  - - "@semantic-release/exec"
+    - shell: true
+      prepareCmd: |
+        sed -i '0,/^version = "[0-9]\+\.[0-9]\+\.[0-9]\+"$/s//version = "${nextRelease.version}"/' greetd/Cargo.toml
+        sed -i 's/^Version: .*/Version: ${nextRelease.version}/' pkg/rpm/greetd.spec
+        task docker:run TARGET=dist:all ARCH=x86_64 TARGET_ARCH=x86_64-unknown-linux-gnu
+        task docker:run TARGET=dist:all ARCH=aarch64 TARGET_ARCH=aarch64-unknown-linux-gnu
+
+  # Commit the following changes to git after other plugins have run
+  - - "@semantic-release/git"
+    - assets:
+        - CHANGELOG.md
+        - greetd/Cargo.toml
+        - Cargo.lock
+        - pkg/rpm/greetd.spec
+
+  # Create a GitHub release with RPM assets
+  - - "@semantic-release/github"
+    - assets:
+        - path: "dist/*x86_64*.rpm"
+          label: "RPM (x86_64)"
+        - path: "dist/*aarch64*.rpm"
+          label: "RPM (aarch64)"

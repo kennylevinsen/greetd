@@ -182,6 +182,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
             // Tell PAM what TTY we're targeting, which is used by logind.
             pam.set_item(PamItemType::TTY, &format!("tty{vt}"))?;
             pam.putenv(&format!("XDG_VTNR={vt}"))?;
+            pam.putenv("XDG_SEAT=seat0")?;
 
             // Opening our target terminal.
             let target_term = terminal::Terminal::open(&path)?;
@@ -213,7 +214,6 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     // specifically, pam_systemd.so), as well as make it easier to gather
     // and set all environment variables later.
     let prepared_env = [
-        "XDG_SEAT=seat0".to_string(),
         format!("XDG_SESSION_CLASS={}", class.as_str()),
         format!("USER={}", user.name),
         format!("LOGNAME={}", user.name),

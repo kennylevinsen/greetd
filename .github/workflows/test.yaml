@@ -1,0 +1,53 @@
+name: 🪲 Test
+
+on:
+  push:
+    branches-ignore:
+      - main
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  run-tests:
+    name: Run tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Task
+        uses: go-task/setup-task@v1
+      - uses: actions/checkout@v3
+      - run: |
+          task docker:run TARGET='test:all'
+        env:
+          SSH_KEY: ${{ secrets.BITBUCKET_SSH_KEY }}
+
+  build-x86_64:
+    name: Run x86_64 build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Task
+        uses: go-task/setup-task@v1
+      - uses: actions/checkout@v3
+      - run: |
+          task docker:run TARGET=dist:all ARCH=x86_64 TARGET_ARCH=x86_64-unknown-linux-gnu
+        env:
+          SSH_KEY: ${{ secrets.BITBUCKET_SSH_KEY }}
+
+  build-aarch64:
+    name: Run aarch64 build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Task
+        uses: go-task/setup-task@v1
+      - uses: actions/checkout@v3
+      - run: |
+          task docker:run TARGET=dist:all ARCH=aarch64 TARGET_ARCH=aarch64-unknown-linux-gnu
+        env:
+          SSH_KEY: ${{ secrets.BITBUCKET_SSH_KEY }}
