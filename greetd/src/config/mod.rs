@@ -91,7 +91,7 @@ fn print_usage(program: &str, opts: Options) {
 
 fn maybe_unquote(s: &str) -> Result<String, Error> {
     Ok(match s.chars().next() {
-        Some('"') | Some('\'') => unquote(s).map_err(|e| Error::ConfigError(e.to_string()))?,
+        Some('"') | Some('\'') => unquote(s).map_err(|e| Error::Config(e.to_string()))?,
         _ => s.to_string(),
     })
 }
@@ -247,23 +247,23 @@ pub fn read_config() -> Result<Config, Error> {
     };
 
     if file.default_session.command.is_empty() {
-        return Err(Error::ConfigError(
+        return Err(Error::Config(
             "no default session user specified".to_string(),
         ));
     }
     if file.default_session.user.is_empty() {
-        return Err(Error::ConfigError(
+        return Err(Error::Config(
             "no default session user specified".to_string(),
         ));
     }
     if let Some(s) = &file.initial_session {
         if s.user.is_empty() {
-            return Err(Error::ConfigError(
+            return Err(Error::Config(
                 "initial session enabled but contained no user".to_string(),
             ));
         }
         if s.command.is_empty() {
-            return Err(Error::ConfigError(
+            return Err(Error::Config(
                 "initial session enabled but contained no command".to_string(),
             ));
         }

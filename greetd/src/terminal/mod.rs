@@ -49,9 +49,9 @@ fn ttyname_r(fd: RawFd) -> Result<String, Error> {
     let cs = (&raw const arr[0]).cast::<libc::c_char>();
     let len = unsafe { libc::strnlen(cs, 31) };
     let s = CStr::from_bytes_with_nul(&arr[..=len])
-        .map_err(|e| Error::Error(format!("ttyname_r result conversion failed: {e}")))?;
+        .map_err(|e| Error::Other(format!("ttyname_r result conversion failed: {e}")))?;
     Ok(s.to_str()
-        .map_err(|e| Error::Error(format!("ttyname_r result conversion failed: {e}")))?
+        .map_err(|e| Error::Other(format!("ttyname_r result conversion failed: {e}")))?
         .to_string())
 }
 

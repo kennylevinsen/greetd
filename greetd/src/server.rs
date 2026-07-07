@@ -45,7 +45,7 @@ fn wait_vt(term_mode: &TerminalMode) -> Result<(), Error> {
 fn wrap_result<T>(res: Result<T, Error>) -> Response {
     match res {
         Ok(_) => Response::Success,
-        Err(Error::AuthError(msg)) => Response::Error {
+        Err(Error::Auth(msg)) => Response::Error {
             error_type: ErrorType::AuthError,
             description: msg,
         },
@@ -121,7 +121,7 @@ fn get_tty(config: &Config) -> Result<TerminalMode, Error> {
                 {
                     let vt = term_name[TTY_PREFIX.len()..]
                         .parse()
-                        .map_err(|e| Error::Error(format!("unable to parse tty number: {e}")))?;
+                        .map_err(|e| Error::Other(format!("unable to parse tty number: {e}")))?;
 
                     TerminalMode::Terminal {
                         path: term_name,

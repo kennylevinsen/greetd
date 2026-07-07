@@ -18,7 +18,7 @@ use greetd_ipc::{
 fn wrap_result<T>(res: Result<T, Error>) -> Response {
     match res {
         Ok(_) => Response::Success,
-        Err(Error::AuthError(msg)) => Response::Error {
+        Err(Error::Auth(msg)) => Response::Error {
             error_type: ErrorType::AuthError,
             description: msg,
         },
@@ -72,7 +72,7 @@ impl Context {
     async fn post_response(&self, response: Option<String>) -> Result<(), Error> {
         let mut s = self.inner.borrow_mut();
         if s.ok {
-            return Err(Error::Error("wat".to_string()));
+            return Err(Error::Other("wat".to_string()));
         }
         if s.user.is_none() {
             s.user = response;
@@ -85,7 +85,7 @@ impl Context {
             {
                 drop(s);
                 sleep(Duration::from_millis(2000)).await;
-                return Err(Error::AuthError("nope".to_string()));
+                return Err(Error::Auth("nope".to_string()));
             }
             s.ok = true;
         }
@@ -94,7 +94,7 @@ impl Context {
 
     async fn start(&self, _cmd: Vec<String>) -> Result<(), Error> {
         if !self.inner.borrow().ok {
-            return Err(Error::Error("not yet dammit".to_string()));
+            return Err(Error::Other("not yet dammit".to_string()));
         }
         sleep(Duration::from_millis(5000)).await;
         Ok(())

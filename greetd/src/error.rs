@@ -3,28 +3,27 @@ use std::convert::From;
 use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
 
-#[allow(clippy::enum_variant_names)]
 #[derive(Debug, ThisError, Clone, Deserialize, Serialize)]
 pub enum Error {
     #[error("{0}")]
-    Error(String),
+    Other(String),
 
     #[error("authentication error: {0}")]
-    AuthError(String),
+    Auth(String),
 
     #[error("protocol error: {0}")]
-    ProtocolError(String),
+    Protocol(String),
 
     #[error("i/o error: {0}")]
     Io(String),
 
     #[error("configuration error: {0}")]
-    ConfigError(String),
+    Config(String),
 }
 
 impl From<Box<dyn std::error::Error>> for Error {
     fn from(error: Box<dyn std::error::Error>) -> Self {
-        Error::Error(error.to_string())
+        Error::Other(error.to_string())
     }
 }
 
@@ -36,14 +35,14 @@ impl From<std::io::Error> for Error {
 
 impl From<crate::pam::PamError> for Error {
     fn from(error: crate::pam::PamError) -> Self {
-        Error::AuthError(error.to_string())
+        Error::Auth(error.to_string())
     }
 }
 
 impl From<greetd_ipc::codec::Error> for Error {
     fn from(error: greetd_ipc::codec::Error) -> Self {
         match error {
-            greetd_ipc::codec::Error::Serialization(s) => Error::ProtocolError(s),
+            greetd_ipc::codec::Error::Serialization(s) => Error::Protocol(s),
             greetd_ipc::codec::Error::Io(s) => Error::Io(s),
             greetd_ipc::codec::Error::Eof => Error::Io("EOF".to_string()),
         }
@@ -52,30 +51,30 @@ impl From<greetd_ipc::codec::Error> for Error {
 
 impl From<String> for Error {
     fn from(error: String) -> Self {
-        Error::Error(error)
+        Error::Other(error)
     }
 }
 
 impl From<&str> for Error {
     fn from(error: &str) -> Self {
-        Error::Error(error.to_string())
+        Error::Other(error.to_string())
     }
 }
 
 impl From<serde_json::error::Error> for Error {
     fn from(error: serde_json::error::Error) -> Self {
-        Error::ProtocolError(error.to_string())
+        Error::Protocol(error.to_string())
     }
 }
 
 impl From<nix::Error> for Error {
     fn from(error: nix::Error) -> Self {
-        Error::Error(error.to_string())
+        Error::Other(error.to_string())
     }
 }
 
 impl From<std::ffi::NulError> for Error {
     fn from(error: std::ffi::NulError) -> Self {
-        Error::Error(error.to_string())
+        Error::Other(error.to_string())
     }
 }
