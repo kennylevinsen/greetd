@@ -412,6 +412,8 @@ runfile = \"/path/to/greetd.state\"
                     source_profile: false,
                     runfile: "/path/to/greetd.state".to_string(),
                     service: "greetd".to_string(),
+                    overlap_handoff: false,
+                    overlap_switch_secs: 3,
                 },
                 initial_session: None,
             }
