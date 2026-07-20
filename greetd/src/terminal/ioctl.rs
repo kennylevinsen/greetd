@@ -34,7 +34,7 @@ pub struct vt_mode {
 #[allow(dead_code)]
 #[repr(C)]
 pub struct vt_setactivate {
-    pub console: u64,
+    pub console: u32,
     pub mode: vt_mode,
 }
 
