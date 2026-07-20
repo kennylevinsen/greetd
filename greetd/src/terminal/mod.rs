@@ -144,7 +144,7 @@ impl Terminal {
     pub fn vt_setactivate(&self, target_vt: usize) -> Result<(), Error> {
         if cfg!(target_os = "linux") {
             let arg = ioctl::vt_setactivate {
-                console: target_vt as u64,
+                console: target_vt as u32,
                 mode: ioctl::vt_mode {
                     mode: ioctl::VT_AUTO,
                     waitv: 0,
