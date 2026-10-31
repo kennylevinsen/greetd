@@ -1,4 +1,6 @@
 use std::{env, ffi::CString, os::unix::net::UnixDatagram};
+#[cfg(target_os = "freebsd")]
+use std::{thread::sleep, time::Duration};
 
 use nix::{
     sys::wait::waitpid,
@@ -7,6 +9,8 @@ use nix::{
 use pam_sys::{PamFlag, PamItemType};
 use serde::{Deserialize, Serialize};
 
+#[cfg(target_os = "freebsd")]
+use super::prctl::{acquire_reaper, signal_reaper_descendants};
 use super::{
     conv::SessionConv,
     prctl::{prctl, PrctlOption},
@@ -175,6 +179,11 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     // Make this process a session leader.
     setsid().map_err(|e| format!("unable to become session leader: {e}"))?;
 
+    // Keep every process created by this login attached to its root session
+    // worker, even if a PAM module or desktop application daemonizes it.
+    #[cfg(target_os = "freebsd")]
+    acquire_reaper().map_err(|e| format!("unable to become session reaper: {e}"))?;
+
     match tty {
         TerminalMode::Stdin => (),
         TerminalMode::Terminal { path, vt, switch } => {
@@ -323,6 +332,21 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
                 break;
             }
             Ok(_) => break,
+        }
+    }
+
+    // FreeBSD has no logind cgroup to remove applications that daemonized or
+    // otherwise left the compositor's process group.  Because this worker is
+    // the session's process reaper, these are exactly this login's remaining
+    // descendants; unrelated shells and other logins cannot be signalled.
+    #[cfg(target_os = "freebsd")]
+    {
+        let remaining = signal_reaper_descendants(libc::SIGTERM)
+            .map_err(|e| format!("unable to terminate session descendants: {e}"))?;
+        if remaining > 0 {
+            sleep(Duration::from_secs(2));
+            signal_reaper_descendants(libc::SIGKILL)
+                .map_err(|e| format!("unable to kill session descendants: {e}"))?;
         }
     }
 
