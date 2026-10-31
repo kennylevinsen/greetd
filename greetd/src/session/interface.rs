@@ -58,7 +58,7 @@ trait AsyncSend {
 }
 
 #[async_trait]
-impl AsyncSend for ParentToSessionChild<'_> {
+impl AsyncSend for ParentToSessionChild {
     async fn send(&self, sock: &mut TokioUnixDatagram) -> Result<(), Error> {
         let mut out =
             serde_json::to_vec(self).map_err(|e| format!("unable to serialize message: {e}"))?;
@@ -180,13 +180,13 @@ impl Session {
         listener_path: &str,
     ) -> Result<(), Error> {
         let msg = ParentToSessionChild::InitiateLogin {
-            service,
+            service: service.to_string(),
             class,
-            user,
+            user: user.to_string(),
             authenticate,
             tty: term_mode.clone(),
             source_profile,
-            listener_path,
+            listener_path: listener_path.to_string(),
         };
         msg.send(&mut self.sock).await?;
         Ok(())

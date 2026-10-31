@@ -51,15 +51,15 @@ impl SessionClass {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ParentToSessionChild<'a> {
+pub enum ParentToSessionChild {
     InitiateLogin {
-        service: &'a str,
+        service: String,
         class: SessionClass,
-        user: &'a str,
+        user: String,
         authenticate: bool,
         tty: TerminalMode,
         source_profile: bool,
-        listener_path: &'a str,
+        listener_path: String,
     },
     PamResponse {
         resp: Option<String>,
@@ -72,11 +72,11 @@ pub enum ParentToSessionChild<'a> {
     Cancel,
 }
 
-impl<'a> ParentToSessionChild<'a> {
+impl ParentToSessionChild {
     pub fn recv(
         sock: &UnixDatagram,
-        data: &'a mut [u8; 10240],
-    ) -> Result<ParentToSessionChild<'a>, Error> {
+        data: &mut [u8; 10240],
+    ) -> Result<ParentToSessionChild, Error> {
         let len = sock.recv(&mut data[..])?;
         let msg = serde_json::from_slice(&data[..len])?;
         Ok(msg)
@@ -128,7 +128,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
         };
 
     let conv = Box::pin(SessionConv::new(sock));
-    let mut pam = PamSession::start(service, user, conv)?;
+    let mut pam = PamSession::start(&service, &user, conv)?;
 
     if authenticate {
         pam.authenticate(PamFlag::NONE)?;
@@ -147,8 +147,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     // Mark authentication as a success.
     SessionChildToParent::Success.send(sock)?;
 
-    // Add GREETD_SOCK if this is a greeter session - we do this early as we are about to reuse the
-    // buffer, invalidating our borrow.
+    // Add GREETD_SOCK if this is a greeter session.
     if let SessionClass::Greeter = class {
         pam.putenv(&format!("GREETD_SOCK={}", &listener_path))?;
     }
@@ -345,5 +344,33 @@ pub fn main(sock: &UnixDatagram) -> Result<(), Error> {
         Err(e)
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deserializes_escaped_login_strings() {
+        let msg = ParentToSessionChild::InitiateLogin {
+            service: "greetd".to_string(),
+            class: SessionClass::User,
+            user: "\u{1b}dberger".to_string(),
+            authenticate: true,
+            tty: TerminalMode::Stdin,
+            source_profile: true,
+            listener_path: "/var/run/greetd.sock".to_string(),
+        };
+        let encoded = serde_json::to_vec(&msg).unwrap();
+        assert!(encoded.windows(6).any(|window| window == b"\\u001b"));
+
+        let decoded: ParentToSessionChild = serde_json::from_slice(&encoded).unwrap();
+        match decoded {
+            ParentToSessionChild::InitiateLogin { user, .. } => {
+                assert_eq!(user, "\u{1b}dberger");
+            }
+            other => panic!("expected InitiateLogin, got {:?}", other),
+        }
     }
 }
