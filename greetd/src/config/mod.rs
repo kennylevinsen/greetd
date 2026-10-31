@@ -5,6 +5,9 @@ use getopts::Options;
 
 use super::error::Error;
 
+#[cfg(target_os = "freebsd")]
+const RUNFILE: &str = "/var/run/greetd.run";
+#[cfg(not(target_os = "freebsd"))]
 const RUNFILE: &str = "/run/greetd.run";
 const GENERAL_SERVICE: &str = "greetd";
 const GREETER_SERVICE: &str = "greetd-greeter";

@@ -41,7 +41,7 @@ fn get_issue() -> Result<String, Box<dyn std::error::Error>> {
     Ok(fs::read_to_string("/etc/issue")?
         .replace(
             "\\S",
-            &get_distro_name().unwrap_or_else(|_| "Linux".to_string()),
+            &get_distro_name().unwrap_or_else(|_| uts.sysname().to_string_lossy().into_owned()),
         )
         .replace("\\l", &format!("tty{vtnr}"))
         .replace("\\s", uts.sysname().to_str().unwrap())

@@ -1,3 +1,5 @@
+#[cfg(target_os = "freebsd")]
+use std::time::Duration;
 use std::{env, ffi::CString, os::unix::net::UnixDatagram};
 
 use nix::{
@@ -7,6 +9,8 @@ use nix::{
 use pam_sys::{PamFlag, PamItemType};
 use serde::{Deserialize, Serialize};
 
+#[cfg(target_os = "freebsd")]
+use super::prctl::{acquire_reaper, reap_reaper_descendants, signal_reaper_descendants};
 use super::{
     conv::SessionConv,
     prctl::{prctl, PrctlOption},
@@ -51,15 +55,15 @@ impl SessionClass {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ParentToSessionChild<'a> {
+pub enum ParentToSessionChild {
     InitiateLogin {
-        service: &'a str,
+        service: String,
         class: SessionClass,
-        user: &'a str,
+        user: String,
         authenticate: bool,
         tty: TerminalMode,
         source_profile: bool,
-        listener_path: &'a str,
+        listener_path: String,
     },
     PamResponse {
         resp: Option<String>,
@@ -72,11 +76,11 @@ pub enum ParentToSessionChild<'a> {
     Cancel,
 }
 
-impl<'a> ParentToSessionChild<'a> {
+impl ParentToSessionChild {
     pub fn recv(
         sock: &UnixDatagram,
-        data: &'a mut [u8; 10240],
-    ) -> Result<ParentToSessionChild<'a>, Error> {
+        data: &mut [u8; 10240],
+    ) -> Result<ParentToSessionChild, Error> {
         let len = sock.recv(&mut data[..])?;
         let msg = serde_json::from_slice(&data[..len])?;
         Ok(msg)
@@ -128,7 +132,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
         };
 
     let conv = Box::pin(SessionConv::new(sock));
-    let mut pam = PamSession::start(service, user, conv)?;
+    let mut pam = PamSession::start(&service, &user, conv)?;
 
     if authenticate {
         pam.authenticate(PamFlag::NONE)?;
@@ -147,8 +151,7 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     // Mark authentication as a success.
     SessionChildToParent::Success.send(sock)?;
 
-    // Add GREETD_SOCK if this is a greeter session - we do this early as we are about to reuse the
-    // buffer, invalidating our borrow.
+    // Add GREETD_SOCK if this is a greeter session.
     if let SessionClass::Greeter = class {
         pam.putenv(&format!("GREETD_SOCK={}", &listener_path))?;
     }
@@ -176,15 +179,29 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     // Make this process a session leader.
     setsid().map_err(|e| format!("unable to become session leader: {e}"))?;
 
+    // Keep every process created by this login attached to its root session
+    // worker, even if a PAM module or desktop application daemonizes it.
+    #[cfg(target_os = "freebsd")]
+    acquire_reaper().map_err(|e| format!("unable to become session reaper: {e}"))?;
+
     match tty {
         TerminalMode::Stdin => (),
         TerminalMode::Terminal { path, vt, switch } => {
-            // Tell PAM what TTY we're targeting, which is used by logind.
-            pam.set_item(PamItemType::TTY, &format!("tty{vt}"))?;
+            // Tell PAM what TTY we're targeting. Device names differ between
+            // Linux (tty1) and FreeBSD (ttyv0), so derive it from the path.
+            pam.set_item(
+                PamItemType::TTY,
+                path.strip_prefix("/dev/").unwrap_or(&path),
+            )?;
             pam.putenv(&format!("XDG_VTNR={vt}"))?;
 
             // Opening our target terminal.
             let target_term = terminal::Terminal::open(&path)?;
+
+            // A compositor can leave a FreeBSD VT in raw keyboard mode. Restore
+            // translated input before starting a text greeter or session.
+            #[cfg(target_os = "freebsd")]
+            target_term.kd_setkbmode_xlate()?;
 
             // Set the target VT mode to text for compatibility. Other login managers
             // set this to graphics, but that disallows start of textual applications,
@@ -221,7 +238,13 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
         format!("SHELL={}", user.shell.to_string_lossy()),
         format!(
             "TERM={}",
-            env::var("TERM").unwrap_or_else(|_| "linux".to_string())
+            env::var("TERM").unwrap_or_else(|_| {
+                if cfg!(target_os = "freebsd") {
+                    "xterm".to_string()
+                } else {
+                    "linux".to_string()
+                }
+            })
         ),
     ];
     for e in env.iter().chain(prepared_env.iter()) {
@@ -312,6 +335,32 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
         }
     }
 
+    // FreeBSD has no logind cgroup to remove applications that daemonized or
+    // otherwise left the compositor's process group.  Because this worker is
+    // the session's process reaper, these are exactly this login's remaining
+    // descendants; unrelated shells and other logins cannot be signalled.
+    #[cfg(target_os = "freebsd")]
+    {
+        let remaining = signal_reaper_descendants(libc::SIGTERM)
+            .map_err(|e| format!("unable to terminate session descendants: {e}"))?;
+        let grace = if remaining > 0 {
+            Duration::from_secs(2)
+        } else {
+            Duration::ZERO
+        };
+        if !reap_reaper_descendants(grace)
+            .map_err(|e| format!("unable to reap session descendants: {e}"))?
+        {
+            signal_reaper_descendants(libc::SIGKILL)
+                .map_err(|e| format!("unable to kill session descendants: {e}"))?;
+            if !reap_reaper_descendants(Duration::from_secs(2))
+                .map_err(|e| format!("unable to reap killed session descendants: {e}"))?
+            {
+                eprintln!("session: descendants survived SIGKILL grace period");
+            }
+        }
+    }
+
     // Close the session. This step requires root privileges to run, as it
     // will result in various forms of login teardown (including unmounting
     // home folders, telling logind that the session ended, etc.). This is
@@ -330,5 +379,33 @@ pub fn main(sock: &UnixDatagram) -> Result<(), Error> {
         Err(e)
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deserializes_escaped_login_strings() {
+        let msg = ParentToSessionChild::InitiateLogin {
+            service: "greetd".to_string(),
+            class: SessionClass::User,
+            user: "\u{1b}dberger".to_string(),
+            authenticate: true,
+            tty: TerminalMode::Stdin,
+            source_profile: true,
+            listener_path: "/var/run/greetd.sock".to_string(),
+        };
+        let encoded = serde_json::to_vec(&msg).unwrap();
+        assert!(encoded.windows(6).any(|window| window == b"\\u001b"));
+
+        let decoded: ParentToSessionChild = serde_json::from_slice(&encoded).unwrap();
+        match decoded {
+            ParentToSessionChild::InitiateLogin { user, .. } => {
+                assert_eq!(user, "\u{1b}dberger");
+            }
+            other => panic!("expected InitiateLogin, got {:?}", other),
+        }
     }
 }

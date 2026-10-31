@@ -99,6 +99,19 @@ impl Terminal {
         }
     }
 
+    /// Restore the FreeBSD console keyboard to translated input mode. A
+    /// compositor may leave the VT in raw or keycode mode when it exits.
+    #[cfg(target_os = "freebsd")]
+    pub fn kd_setkbmode_xlate(&self) -> Result<(), Error> {
+        let ret = unsafe { ioctl::kd_setkbmode(self.fd, ioctl::K_XLATE) };
+
+        if let Err(v) = ret {
+            Err(format!("terminal: unable to set keyboard mode: {v}").into())
+        } else {
+            Ok(())
+        }
+    }
+
     /// Switches to the specified VT and waits for completion of switch.
     fn vt_activate(&self, target_vt: usize) -> Result<(), Error> {
         if let Err(v) = unsafe { ioctl::vt_activate(self.fd, target_vt as i32) } {
@@ -142,7 +155,8 @@ impl Terminal {
     /// `VT_SETMODE` followed by `VT_ACTIVATE` is used. For all platforms,
     /// `VT_WAITACTIVE` is used to wait for shell activation.
     pub fn vt_setactivate(&self, target_vt: usize) -> Result<(), Error> {
-        if cfg!(target_os = "linux") {
+        #[cfg(not(target_os = "freebsd"))]
+        {
             let arg = ioctl::vt_setactivate {
                 console: target_vt as u32,
                 mode: ioctl::vt_mode {
@@ -159,7 +173,9 @@ impl Terminal {
             if let Err(v) = unsafe { ioctl::vt_waitactive(self.fd, target_vt as i32) } {
                 return Err(format!("terminal: unable to wait for activation: {v}").into());
             }
-        } else {
+        }
+        #[cfg(target_os = "freebsd")]
+        {
             self.vt_mode_clean()?;
             self.vt_activate(target_vt)?;
         }
@@ -168,19 +184,35 @@ impl Terminal {
 
     /// Retrieves the current VT number.
     pub fn vt_get_current(&self) -> Result<usize, Error> {
-        let mut state = ioctl::vt_state {
-            v_active: 0,
-            v_signal: 0,
-            v_state: 0,
-        };
-        let res = unsafe { ioctl::vt_getstate(self.fd, &raw mut state) };
+        #[cfg(not(target_os = "freebsd"))]
+        {
+            let mut state = ioctl::vt_state {
+                v_active: 0,
+                v_signal: 0,
+                v_state: 0,
+            };
+            let res = unsafe { ioctl::vt_getstate(self.fd, &raw mut state) };
 
-        if let Err(v) = res {
-            Err(format!("terminal: unable to get current vt: {v}").into())
-        } else if state.v_active < 1 {
-            Err(format!("terminal: current vt invalid: {}", state.v_active).into())
-        } else {
-            Ok(state.v_active as usize)
+            if let Err(v) = res {
+                Err(format!("terminal: unable to get current vt: {v}").into())
+            } else if state.v_active < 1 {
+                Err(format!("terminal: current vt invalid: {}", state.v_active).into())
+            } else {
+                Ok(state.v_active as usize)
+            }
+        }
+        #[cfg(target_os = "freebsd")]
+        {
+            let mut active = 0;
+            let res = unsafe { ioctl::vt_getactive(self.fd, &raw mut active) };
+
+            if let Err(v) = res {
+                Err(format!("terminal: unable to get current vt: {v}").into())
+            } else if active < 1 {
+                Err(format!("terminal: current vt invalid: {active}").into())
+            } else {
+                Ok(active as usize)
+            }
         }
     }
 
@@ -188,7 +220,7 @@ impl Terminal {
     /// that allocation does not mean exclusivity, and another process may take
     /// and use the VT before you get to it.
     pub fn vt_get_next(&self) -> Result<usize, Error> {
-        let mut next_vt: i64 = 0;
+        let mut next_vt: i32 = 0;
         let res = unsafe { ioctl::vt_openqry(self.fd, &raw mut next_vt) };
 
         if let Err(v) = res {
@@ -227,7 +259,10 @@ impl Terminal {
 
     // Forcibly take control of the terminal referred to by this fd.
     pub fn term_take_ctty(&self) -> Result<(), Error> {
+        #[cfg(not(target_os = "freebsd"))]
         let res = unsafe { ioctl::term_tiocsctty(self.fd, 1) };
+        #[cfg(target_os = "freebsd")]
+        let res = unsafe { ioctl::term_tiocsctty(self.fd) };
 
         match res {
             Err(e) => Err(format!("terminal: unable to take controlling terminal: {e}").into()),

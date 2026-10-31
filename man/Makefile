@@ -1,4 +1,4 @@
-SCDOC=$(shell pkg-config --variable=scdoc scdoc)
+SCDOC?=scdoc
 PREFIX?=/usr/local
 MANDIR?=$(PREFIX)/share/man
 DESTDIR?=
