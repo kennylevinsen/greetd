@@ -91,13 +91,7 @@ impl<'a> PamSession<'a> {
     }
 
     pub fn putenv(&mut self, v: &str) -> Result<(), PamError> {
-        let value = CString::new(v)
-            .map_err(|e| PamError::Error(format!("pam_putenv: invalid environment value: {e}")))?;
-        self.last_code = PamReturnCode::from(unsafe {
-            // pam-sys 0.5.6 passes str::as_ptr() directly, but pam_putenv(3)
-            // requires a NUL-terminated string.
-            pam_sys::raw::pam_putenv(self.handle, value.as_ptr())
-        });
+        self.last_code = pam_sys::putenv(self.handle, v);
         match self.last_code {
             PamReturnCode::SUCCESS => Ok(()),
             rc => Err(PamError::from_rc("pam_putenv", rc)),
