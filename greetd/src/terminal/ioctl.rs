@@ -5,6 +5,8 @@ use nix::{ioctl_read_bad, ioctl_write_int_bad, ioctl_write_ptr_bad};
 
 pub const KDTEXT: i32 = 0x00;
 pub const KDGRAPHICS: i32 = 0x01;
+#[cfg(target_os = "freebsd")]
+pub const K_XLATE: i32 = 1;
 pub const VT_AUTO: u8 = 0;
 
 #[allow(dead_code)]
@@ -61,6 +63,7 @@ mod platform {
 
     // FreeBSD encodes argument direction and size in ioctl request numbers.
     ioctl_write_int!(kd_setmode, b'K', 10);
+    ioctl_write_int!(kd_setkbmode, b'K', 7);
     ioctl_read!(vt_openqry, b'v', 1, i32);
     ioctl_write_ptr!(vt_setmode, b'v', 2, vt_mode);
     ioctl_write_int!(vt_activate, b'v', 5);

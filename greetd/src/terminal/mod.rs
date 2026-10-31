@@ -99,6 +99,19 @@ impl Terminal {
         }
     }
 
+    /// Restore the FreeBSD console keyboard to translated input mode. A
+    /// compositor may leave the VT in raw or keycode mode when it exits.
+    #[cfg(target_os = "freebsd")]
+    pub fn kd_setkbmode_xlate(&self) -> Result<(), Error> {
+        let ret = unsafe { ioctl::kd_setkbmode(self.fd, ioctl::K_XLATE) };
+
+        if let Err(v) = ret {
+            Err(format!("terminal: unable to set keyboard mode: {v}").into())
+        } else {
+            Ok(())
+        }
+    }
+
     /// Switches to the specified VT and waits for completion of switch.
     fn vt_activate(&self, target_vt: usize) -> Result<(), Error> {
         if let Err(v) = unsafe { ioctl::vt_activate(self.fd, target_vt as i32) } {

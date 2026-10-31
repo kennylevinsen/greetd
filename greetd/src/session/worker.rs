@@ -190,6 +190,11 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
             // Opening our target terminal.
             let target_term = terminal::Terminal::open(&path)?;
 
+            // A compositor can leave a FreeBSD VT in raw keyboard mode. Restore
+            // translated input before starting a text greeter or session.
+            #[cfg(target_os = "freebsd")]
+            target_term.kd_setkbmode_xlate()?;
+
             // Set the target VT mode to text for compatibility. Other login managers
             // set this to graphics, but that disallows start of textual applications,
             // which greetd aims to support.

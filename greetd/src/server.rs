@@ -23,6 +23,8 @@ fn reset_vt(term_mode: &TerminalMode) -> Result<(), Error> {
     match term_mode {
         TerminalMode::Terminal { path, vt, .. } => {
             let term = Terminal::open(path)?;
+            #[cfg(target_os = "freebsd")]
+            term.kd_setkbmode_xlate()?;
             term.kd_setmode(terminal::KdMode::Text)?;
             term.vt_setactivate(*vt)?;
         }

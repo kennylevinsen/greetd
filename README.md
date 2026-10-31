@@ -87,7 +87,7 @@ Create the unprivileged greeter account and allow it to access the seat used by
 graphical greeters:
 
 ```sh
-pw useradd greeter -c "greetd greeter" -d /nonexistent -s /usr/sbin/nologin
+pw useradd greeter -c "greetd greeter" -d /var/empty -s /usr/sbin/nologin
 pw groupmod video -m greeter
 sysrc seatd_enable=YES
 ```
