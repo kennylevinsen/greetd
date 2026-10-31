@@ -115,6 +115,11 @@ service seatd start
 service greetd start
 ```
 
+When testing greetd by starting it from an existing graphical session,
+FreeBSD may retain an Alt modifier across the VT switch. If normal keys arrive
+with an Escape prefix (for example, `d` appears as `^[d`), press and release
+the left Alt key once to clear the stale modifier state.
+
 The authenticated user's PAM session must export a usable runtime directory.
 FreeBSD 15 provides `pam_xdg` in the base system; on an older release, install
 the `security/pam_xdg` port. Add `session required pam_xdg.so` to the system PAM
