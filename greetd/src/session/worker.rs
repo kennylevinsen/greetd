@@ -1,6 +1,6 @@
-use std::{env, ffi::CString, os::unix::net::UnixDatagram};
 #[cfg(target_os = "freebsd")]
-use std::{thread::sleep, time::Duration};
+use std::time::Duration;
+use std::{env, ffi::CString, os::unix::net::UnixDatagram};
 
 use nix::{
     sys::wait::waitpid,
@@ -10,7 +10,7 @@ use pam_sys::{PamFlag, PamItemType};
 use serde::{Deserialize, Serialize};
 
 #[cfg(target_os = "freebsd")]
-use super::prctl::{acquire_reaper, signal_reaper_descendants};
+use super::prctl::{acquire_reaper, reap_reaper_descendants, signal_reaper_descendants};
 use super::{
     conv::SessionConv,
     prctl::{prctl, PrctlOption},
@@ -343,10 +343,21 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     {
         let remaining = signal_reaper_descendants(libc::SIGTERM)
             .map_err(|e| format!("unable to terminate session descendants: {e}"))?;
-        if remaining > 0 {
-            sleep(Duration::from_secs(2));
+        let grace = if remaining > 0 {
+            Duration::from_secs(2)
+        } else {
+            Duration::ZERO
+        };
+        if !reap_reaper_descendants(grace)
+            .map_err(|e| format!("unable to reap session descendants: {e}"))?
+        {
             signal_reaper_descendants(libc::SIGKILL)
                 .map_err(|e| format!("unable to kill session descendants: {e}"))?;
+            if !reap_reaper_descendants(Duration::from_secs(2))
+                .map_err(|e| format!("unable to reap killed session descendants: {e}"))?
+            {
+                eprintln!("session: descendants survived SIGKILL grace period");
+            }
         }
     }
 

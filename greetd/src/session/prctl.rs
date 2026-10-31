@@ -1,7 +1,17 @@
 use nix::{errno::Errno, Result};
 
 #[cfg(target_os = "freebsd")]
-use std::ffi::c_void;
+use std::{
+    ffi::c_void,
+    thread::sleep,
+    time::{Duration, Instant},
+};
+
+#[cfg(target_os = "freebsd")]
+use nix::{
+    sys::wait::{waitpid, WaitPidFlag, WaitStatus},
+    unistd::Pid,
+};
 
 #[cfg(target_os = "linux")]
 const PRCTL_SET_PDEATHSIG: i32 = 1;
@@ -82,6 +92,31 @@ pub fn signal_reaper_descendants(signal: libc::c_int) -> Result<usize> {
     Ok(request.killed as usize)
 }
 
+/// Reap children owned by the current FreeBSD process reaper.
+///
+/// Returns `true` once no children remain and `false` if a running child is
+/// still present when the timeout expires.  Exited children are always reaped,
+/// including when the timeout is zero.
+#[cfg(target_os = "freebsd")]
+pub fn reap_reaper_descendants(timeout: Duration) -> Result<bool> {
+    let deadline = Instant::now() + timeout;
+
+    loop {
+        match waitpid(Pid::from_raw(-1), Some(WaitPidFlag::WNOHANG)) {
+            Ok(WaitStatus::StillAlive) => {
+                if Instant::now() >= deadline {
+                    return Ok(false);
+                }
+                sleep(Duration::from_millis(20));
+            }
+            Ok(_) => continue,
+            Err(Errno::EINTR) => continue,
+            Err(Errno::ECHILD) => return Ok(true),
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn set_parent_death_signal(sig: i32) -> i32 {
     unsafe { libc::prctl(PRCTL_SET_PDEATHSIG, sig, 0, 0, 0) }
@@ -124,7 +159,7 @@ mod tests {
     }
 
     #[test]
-    fn reaper_signals_descendants_outside_its_process_group() {
+    fn reaper_signals_and_reaps_descendants_outside_its_process_group() {
         use std::os::unix::net::UnixDatagram;
 
         use nix::{
@@ -156,10 +191,11 @@ mod tests {
                 };
 
                 assert_eq!(signal_reaper_descendants(libc::SIGTERM).unwrap(), 1);
-                assert!(matches!(
-                    waitpid(child, None).unwrap(),
-                    WaitStatus::Signaled(_, nix::sys::signal::Signal::SIGTERM, _)
-                ));
+                assert!(reap_reaper_descendants(Duration::from_secs(1)).unwrap());
+                assert_eq!(
+                    waitpid(child, Some(nix::sys::wait::WaitPidFlag::WNOHANG)),
+                    Err(Errno::ECHILD)
+                );
                 unsafe { libc::_exit(0) };
             }
         };
