@@ -1,0 +1,6 @@
+# The configured greeter account is started without authentication.
+
+auth		required	pam_permit.so
+account		required	pam_permit.so
+session		required	pam_permit.so
+password	required	pam_deny.so

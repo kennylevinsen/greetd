@@ -179,8 +179,12 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     match tty {
         TerminalMode::Stdin => (),
         TerminalMode::Terminal { path, vt, switch } => {
-            // Tell PAM what TTY we're targeting, which is used by logind.
-            pam.set_item(PamItemType::TTY, &format!("tty{vt}"))?;
+            // Tell PAM what TTY we're targeting. Device names differ between
+            // Linux (tty1) and FreeBSD (ttyv0), so derive it from the path.
+            pam.set_item(
+                PamItemType::TTY,
+                path.strip_prefix("/dev/").unwrap_or(&path),
+            )?;
             pam.putenv(&format!("XDG_VTNR={vt}"))?;
 
             // Opening our target terminal.
@@ -221,7 +225,13 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
         format!("SHELL={}", user.shell.to_string_lossy()),
         format!(
             "TERM={}",
-            env::var("TERM").unwrap_or_else(|_| "linux".to_string())
+            env::var("TERM").unwrap_or_else(|_| {
+                if cfg!(target_os = "freebsd") {
+                    "xterm".to_string()
+                } else {
+                    "linux".to_string()
+                }
+            })
         ),
     ];
     for e in env.iter().chain(prepared_env.iter()) {

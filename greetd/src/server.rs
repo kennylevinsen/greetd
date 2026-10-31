@@ -93,22 +93,56 @@ async fn client_handler(ctx: &Context, mut s: UnixStream) -> Result<(), Error> {
     }
 }
 
+#[cfg(not(target_os = "freebsd"))]
+const TTY_PREFIX: &str = "/dev/tty";
+#[cfg(target_os = "freebsd")]
+const TTY_PREFIX: &str = "/dev/ttyv";
+
+#[cfg(not(target_os = "freebsd"))]
+fn vt_from_path(path: &str) -> Result<usize, Error> {
+    path[TTY_PREFIX.len()..]
+        .parse()
+        .map_err(|e| Error::Other(format!("unable to parse tty number: {e}")))
+}
+
+#[cfg(target_os = "freebsd")]
+fn vt_from_path(path: &str) -> Result<usize, Error> {
+    usize::from_str_radix(&path[TTY_PREFIX.len()..], 16)
+        .map(|index| index + 1)
+        .map_err(|e| Error::Other(format!("unable to parse tty number: {e}")))
+}
+
+#[cfg(not(target_os = "freebsd"))]
+fn vt_path(vt: usize) -> Result<String, Error> {
+    Ok(format!("/dev/tty{vt}"))
+}
+
+#[cfg(target_os = "freebsd")]
+fn vt_path(vt: usize) -> Result<String, Error> {
+    let index = vt.checked_sub(1).ok_or("VT numbers start at 1")?;
+    Ok(format!("/dev/ttyv{index:x}"))
+}
+
+#[cfg(not(target_os = "freebsd"))]
+const SYSTEM_TERMINAL: &str = "/dev/tty0";
+#[cfg(target_os = "freebsd")]
+const SYSTEM_TERMINAL: &str = "/dev/console";
+
 // Return a TTY path and the TTY/VT number, based on the configured target.
 //
 // If the target is VtSelection::Current, return the path to the TTY
 // referenced by stdin and the TTY number it is connected to if possible. If
-// the referenced TTY is a PTY, fail. Otherwise, open tty0, get the current VT
-// number, and return the path to that TTY and VT.
+// the referenced TTY is a PTY, fail. Otherwise, open the platform's system
+// console, get the current VT number, and return the path to that TTY and VT.
 //
-// If the target is VtSelection::Next, open tty0 and request the next VT
-// number. Return the TTY and VT
+// If the target is VtSelection::Next, open the system console and request the
+// next VT number. Return the TTY and VT.
 //
 // If the target is VtSelection::Specific, simply return the specified TTY and
 // VT.
 //
 // If the target is VtSelection::None, return nothing.
 fn get_tty(config: &Config) -> Result<TerminalMode, Error> {
-    const TTY_PREFIX: &str = "/dev/tty";
     const PTS_PREFIX: &str = "/dev/pts";
 
     let term = match config.file.terminal.vt {
@@ -119,9 +153,7 @@ fn get_tty(config: &Config) -> Result<TerminalMode, Error> {
                 Ok(term_name)
                     if term_name.starts_with(TTY_PREFIX) && term_name.len() > TTY_PREFIX.len() =>
                 {
-                    let vt = term_name[TTY_PREFIX.len()..]
-                        .parse()
-                        .map_err(|e| Error::Other(format!("unable to parse tty number: {e}")))?;
+                    let vt = vt_from_path(&term_name)?;
 
                     TerminalMode::Terminal {
                         path: term_name,
@@ -130,17 +162,17 @@ fn get_tty(config: &Config) -> Result<TerminalMode, Error> {
                     }
                 }
                 Ok(term_name) if term_name.starts_with(PTS_PREFIX) => {
-                    return Err("cannot use current VT when started from a psuedo terminal".into())
+                    return Err("cannot use current VT when started from a pseudo terminal".into())
                 }
                 // We don't have a usable terminal, so we have to jump through some hoops
                 _ => {
-                    let sys_term = Terminal::open("/dev/tty0")
+                    let sys_term = Terminal::open(SYSTEM_TERMINAL)
                         .map_err(|e| format!("unable to open terminal: {e}"))?;
                     let vt = sys_term
                         .vt_get_current()
                         .map_err(|e| format!("unable to get current VT: {e}"))?;
                     TerminalMode::Terminal {
-                        path: format!("/dev/tty{vt}"),
+                        path: vt_path(vt)?,
                         vt,
                         switch: false,
                     }
@@ -148,25 +180,39 @@ fn get_tty(config: &Config) -> Result<TerminalMode, Error> {
             }
         }
         VtSelection::Next => {
-            let term =
-                Terminal::open("/dev/tty0").map_err(|e| format!("unable to open terminal: {e}"))?;
+            let term = Terminal::open(SYSTEM_TERMINAL)
+                .map_err(|e| format!("unable to open terminal: {e}"))?;
             let vt = term
                 .vt_get_next()
                 .map_err(|e| format!("unable to get next VT: {e}"))?;
             TerminalMode::Terminal {
-                path: format!("/dev/tty{vt}"),
+                path: vt_path(vt)?,
                 vt,
                 switch: config.file.terminal.switch,
             }
         }
         VtSelection::None => TerminalMode::Stdin,
         VtSelection::Specific(vt) => TerminalMode::Terminal {
-            path: format!("/dev/tty{vt}"),
+            path: vt_path(vt)?,
             vt,
             switch: config.file.terminal.switch,
         },
     };
     Ok(term)
+}
+
+#[cfg(all(test, target_os = "freebsd"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_freebsd_vt_numbers_and_paths() {
+        assert_eq!(vt_path(1).unwrap(), "/dev/ttyv0");
+        assert_eq!(vt_path(16).unwrap(), "/dev/ttyvf");
+        assert!(vt_path(0).is_err());
+        assert_eq!(vt_from_path("/dev/ttyv0").unwrap(), 1);
+        assert_eq!(vt_from_path("/dev/ttyvf").unwrap(), 16);
+    }
 }
 
 fn pam_service_exists(service: &str) -> bool {
@@ -180,7 +226,11 @@ struct Listener(UnixListener);
 
 impl Listener {
     fn create(uid: Uid, gid: Gid) -> Result<(String, Listener), Error> {
-        let path = format!("/run/greetd-{}.sock", getpid().as_raw());
+        #[cfg(target_os = "freebsd")]
+        const RUNTIME_DIR: &str = "/var/run";
+        #[cfg(not(target_os = "freebsd"))]
+        const RUNTIME_DIR: &str = "/run";
+        let path = format!("{RUNTIME_DIR}/greetd-{}.sock", getpid().as_raw());
         let _ = std::fs::remove_file(&path);
         let listener =
             UnixListener::bind(&path).map_err(|e| format!("unable to open listener: {e}"))?;

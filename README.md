@@ -65,6 +65,61 @@ sudo chmod -R go+r /etc/greetd/
 systemctl enable --now greetd
 ```
 
+### FreeBSD
+
+The FreeBSD port uses the native `vt(4)` console, OpenPAM, `procctl(2)`, and
+`rc.d`. Install the build and Wayland seat dependencies, then build and install
+greetd:
+
+```sh
+pkg install rust scdoc seatd
+cargo build --release
+make -C man
+install -m 0755 target/release/greetd target/release/agreety /usr/local/bin/
+install -d /usr/local/etc/greetd /usr/local/etc/rc.d
+install -m 0644 contrib/freebsd/pam.d/greetd /etc/pam.d/greetd
+install -m 0644 contrib/freebsd/pam.d/greetd-greeter /etc/pam.d/greetd-greeter
+install -m 0755 contrib/freebsd/greetd /usr/local/etc/rc.d/greetd
+make -C man install
+```
+
+Create the unprivileged greeter account and allow it to access the seat used by
+graphical greeters:
+
+```sh
+pw useradd greeter -c "greetd greeter" -d /nonexistent -s /usr/sbin/nologin
+pw groupmod video -m greeter
+sysrc seatd_enable=YES
+```
+
+Copy `config.toml` to `/usr/local/etc/greetd/config.toml`. FreeBSD's device for
+greetd VT number 1 is `/dev/ttyv0`, number 2 is `/dev/ttyv1`, and so on. Make
+sure the corresponding `ttyv` entry in `/etc/ttys` is disabled so `getty` does
+not compete with greetd. For example, this starts an authenticated Hyprland
+session on greetd VT 9 (`/dev/ttyv8`):
+
+```toml
+[terminal]
+vt = 9
+
+[default_session]
+command = "/usr/local/bin/agreety --cmd /usr/local/bin/Hyprland"
+user = "greeter"
+```
+
+Finally, enable the service and reboot, or start both services directly:
+
+```sh
+sysrc greetd_enable=YES
+service seatd start
+service greetd start
+```
+
+The authenticated user's PAM session must export a usable runtime directory.
+FreeBSD 15 provides `pam_xdg` in the base system; on an older release, install
+the `security/pam_xdg` port. Add `session required pam_xdg.so` to the system PAM
+session policy if it is not already present.
+
 ## How do I write my own greeter?
 
 All you need is an application that can speak the greetd IPC protocol, which is documented in `greetd-ipc(7)`. See gtkgreet or agreety for inspiration.

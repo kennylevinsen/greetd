@@ -2,11 +2,17 @@ use std::{
     ffi::CString,
     os::unix::{io::AsRawFd, net::UnixDatagram},
 };
+#[cfg(target_os = "freebsd")]
+use std::{fs::File, os::unix::ffi::OsStringExt, sync::OnceLock};
 
+#[cfg(target_os = "linux")]
+use nix::unistd::execv;
+#[cfg(target_os = "freebsd")]
+use nix::unistd::fexecve;
 use nix::{
     fcntl::{fcntl, FcntlArg, FdFlag},
     sys::signal::Signal,
-    unistd::{execv, fork, ForkResult, Pid},
+    unistd::{fork, ForkResult, Pid},
 };
 
 use async_trait::async_trait;
@@ -17,6 +23,29 @@ use super::worker::{
     AuthMessageType, ParentToSessionChild, SessionChildToParent, SessionClass, TerminalMode,
 };
 use crate::{error::Error, scrambler::Scrambler};
+
+#[cfg(target_os = "freebsd")]
+static SELF_EXECUTABLE: OnceLock<File> = OnceLock::new();
+
+#[cfg(target_os = "freebsd")]
+pub fn init_self_executable() -> Result<(), Error> {
+    let executable = File::open(std::env::current_exe()?)?;
+    SELF_EXECUTABLE
+        .set(executable)
+        .map_err(|_| Error::Other("self executable already initialized".to_string()))
+}
+
+#[cfg(target_os = "freebsd")]
+fn environment() -> Result<Vec<CString>, Error> {
+    std::env::vars_os()
+        .map(|(key, value)| {
+            let mut entry = key.into_vec();
+            entry.push(b'=');
+            entry.extend(value.into_vec());
+            CString::new(entry).map_err(Error::from)
+        })
+        .collect()
+}
 
 #[async_trait]
 trait AsyncRecv<T: Sized> {
@@ -104,23 +133,28 @@ impl Session {
         cur_flags.remove(FdFlag::FD_CLOEXEC);
         fcntl(raw_child, FcntlArg::F_SETFD(cur_flags))?;
 
-        // On Linux, /proc/self/exe is a reference to the original file, which remains valid
-        // in spite of unlink or rename similar to an already open fd. It is, however, not very
-        // portable. On FreeBSD, we would likely need to open our own process file early and rely
-        // on fexecve, using the KERN_PROC_PATHNAME sysctl to get the path.
+        let args = [
+            CString::new("greetd").unwrap(),
+            CString::new("--session-worker").unwrap(),
+            CString::new(format!("{}", raw_child as usize)).unwrap(),
+        ];
+        #[cfg(target_os = "freebsd")]
+        let executable = SELF_EXECUTABLE
+            .get()
+            .ok_or("self executable was not initialized")?;
+        #[cfg(target_os = "freebsd")]
+        let environment = environment()?;
+
         #[allow(unreachable_code)]
         let child = match unsafe { fork() }.map_err(|e| format!("unable to fork: {e}"))? {
             ForkResult::Parent { child, .. } => child,
             ForkResult::Child => {
-                execv(
-                    &CString::new("/proc/self/exe").unwrap(),
-                    &[
-                        &CString::new("greetd").unwrap(),
-                        &CString::new("--session-worker").unwrap(),
-                        &CString::new(format!("{}", raw_child as usize)).unwrap(),
-                    ],
-                )
-                .expect("unable to exec");
+                #[cfg(target_os = "linux")]
+                execv(&CString::new("/proc/self/exe").unwrap(), &args)
+                    .expect("unable to exec session worker");
+                #[cfg(target_os = "freebsd")]
+                fexecve(executable.as_raw_fd(), &args, &environment)
+                    .expect("unable to exec session worker");
 
                 unreachable!("after exec");
             }
