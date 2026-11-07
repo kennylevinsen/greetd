@@ -175,9 +175,22 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     let pam_username = pam.get_user()?;
 
     let user = nix::unistd::User::from_name(&pam_username)?.ok_or("unable to get user info")?;
+    let cusername = CString::new(user.name.as_str())?;
 
     // Make this process a session leader.
     setsid().map_err(|e| format!("unable to become session leader: {e}"))?;
+
+    // FreeBSD stores the login name on the process session independently of
+    // its credentials. Set it while this new session leader is still root so
+    // getlogin(2) reports the authenticated user instead of greetd's login.
+    #[cfg(target_os = "freebsd")]
+    if unsafe { libc::setlogin(cusername.as_ptr()) } != 0 {
+        return Err(format!(
+            "unable to set session login name: {}",
+            std::io::Error::last_os_error()
+        )
+        .into());
+    }
 
     // Keep every process created by this login attached to its root session
     // worker, even if a PAM module or desktop application daemonizes it.
@@ -258,7 +271,6 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
     _ = pam.putenv("XDG_SESSION_CLASS");
 
     // Prepare some strings in C format that we'll need.
-    let cusername = CString::new(user.name)?;
     let command = if source_profile {
         format!(
             "[ -f /etc/profile ] && . /etc/profile; [ -f $HOME/.profile ] && . $HOME/.profile; exec {}",
