@@ -1,0 +1,25 @@
+#!/bin/sh
+
+# PROVIDE: greetd
+# REQUIRE: LOGIN cleanvar
+# KEYWORD: shutdown
+#
+# Add greetd_enable="YES" to /etc/rc.conf to enable greetd.
+
+. /etc/rc.subr
+
+name="greetd"
+rcvar="greetd_enable"
+
+load_rc_config "$name"
+
+: ${greetd_enable:="NO"}
+: ${greetd_config:="/usr/local/etc/greetd/config.toml"}
+: ${greetd_flags:=""}
+
+command="/usr/sbin/daemon"
+procname="/usr/local/bin/greetd"
+pidfile="/var/run/${name}.pid"
+command_args="-s err -T ${name} -p ${pidfile} ${procname} --config ${greetd_config} ${greetd_flags}"
+
+run_rc_command "$1"

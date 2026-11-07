@@ -1,7 +1,9 @@
 use std::ffi::CStr;
 
 use libc::c_char;
-use pam_sys::{getenvlist, raw, PamHandle};
+#[cfg(target_os = "linux")]
+use pam_sys::raw;
+use pam_sys::{getenvlist, PamHandle};
 
 pub struct PamEnvList {
     ptr: *const *const c_char,
@@ -41,5 +43,22 @@ impl<'a> PamEnvList {
 impl Drop for PamEnvList {
     fn drop(&mut self) {
         unsafe { raw::pam_misc_drop_env(self.ptr as *mut *mut c_char) };
+    }
+}
+
+#[cfg(target_os = "freebsd")]
+impl Drop for PamEnvList {
+    fn drop(&mut self) {
+        let mut idx = 0;
+        loop {
+            let env_ptr = unsafe { self.ptr.add(idx) };
+            let value = unsafe { *env_ptr };
+            if value.is_null() {
+                break;
+            }
+            unsafe { libc::free(value.cast_mut().cast()) };
+            idx += 1;
+        }
+        unsafe { libc::free(self.ptr.cast_mut().cast()) };
     }
 }

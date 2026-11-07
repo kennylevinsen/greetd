@@ -1,0 +1,7 @@
+# PAM policy for authenticated greetd user sessions on FreeBSD.
+
+auth		include		system
+account		required	pam_nologin.so
+account		include		system
+session		include		system
+password	include		system

@@ -41,6 +41,13 @@ async fn main() {
     if cfg!(feature = "debug") {
         eprintln!("config: {config:?}");
     }
+    #[cfg(target_os = "freebsd")]
+    if config.internal.session_worker == 0 {
+        if let Err(e) = session::interface::init_self_executable() {
+            eprintln!("unable to open greetd executable: {e}");
+            std::process::exit(1);
+        }
+    }
     mlockall(MlockAllFlags::all()).expect("unable to lock pages");
     let res = task::LocalSet::new()
         .run_until(async move {
