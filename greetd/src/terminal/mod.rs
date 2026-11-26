@@ -188,7 +188,7 @@ impl Terminal {
     /// that allocation does not mean exclusivity, and another process may take
     /// and use the VT before you get to it.
     pub fn vt_get_next(&self) -> Result<usize, Error> {
-        let mut next_vt: i64 = 0;
+        let mut next_vt: libc::c_int = 0;
         let res = unsafe { ioctl::vt_openqry(self.fd, &raw mut next_vt) };
 
         if let Err(v) = res {

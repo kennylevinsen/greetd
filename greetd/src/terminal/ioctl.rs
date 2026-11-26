@@ -17,7 +17,7 @@ ioctl_write_int_bad!(vt_activate, VT_ACTIVATE);
 ioctl_write_int_bad!(vt_waitactive, VT_WAITACTIVE);
 ioctl_write_ptr_bad!(vt_setmode, VT_SETMODE, vt_mode);
 ioctl_write_ptr_bad!(vt_setactivate, VT_SETACTIVATE, vt_setactivate);
-ioctl_read_bad!(vt_openqry, VT_OPENQRY, i64);
+ioctl_read_bad!(vt_openqry, VT_OPENQRY, libc::c_int);
 ioctl_read_bad!(vt_getstate, VT_GETSTATE, vt_state);
 ioctl_write_int_bad!(term_tiocsctty, TIOCSCTTY);
 
